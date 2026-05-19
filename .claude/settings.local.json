@@ -56,7 +56,9 @@
       "Bash(curl -s http://localhost:3333/rooms/download/338e7af6-de3d-4c98-ba5b-e7bfeac5eff7)",
       "Bash(curl -s -o /dev/null -w \"GET /room/curl-test-room -> %{http_code}\\\\n\" http://localhost:3333/room/curl-test-room)",
       "Bash(curl -s -r 0-1023 -o /dev/null -w \"GET /video/curl-test-room.mp4 \\(range\\) -> %{http_code} type=%{content_type}\\\\n\" http://localhost:3333/video/curl-test-room.mp4)",
-      "Bash(curl -s http://localhost:3333/)"
+      "Bash(curl -s http://localhost:3333/)",
+      "Bash(git fetch *)",
+      "Bash(git ls-tree *)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\storage\\videos"
