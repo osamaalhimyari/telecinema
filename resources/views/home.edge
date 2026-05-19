@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Watch Party — Rooms</title>
+    <link rel="stylesheet" href="/css/app.css" />
+  </head>
+  <body class="page-home">
+    @include('partials/flash')
+
+    <header class="site-header">
+      <div class="site-header-row">
+        <div class="brand">
+          <span class="brand-mark">◐</span>
+          <span class="brand-name">Watch Party</span>
+        </div>
+        <a class="btn-primary" href="/create">＋ Create a room</a>
+      </div>
+      <p class="brand-tagline">Pick a room and watch in perfect sync with everyone else inside.</p>
+    </header>
+
+    <main class="home-main">
+      @if(rooms.length)
+        <section class="room-grid">
+          @each(room in rooms)
+            <a class="room-card" href="/room/{{ room.slug }}">
+              <div class="room-thumb">
+                <img
+                  class="room-thumb-img"
+                  src="/thumbnails/{{ room.thumbnailFilename }}"
+                  alt="{{ room.name }}"
+                  loading="lazy"
+                  onerror="this.classList.add('is-broken')"
+                />
+                @if(room.thumbnailFilename === '')
+                  <span class="room-thumb-fallback" aria-hidden="true">🎬</span>
+                @end
+                @if(room.hasPassword)
+                  <span class="lock-badge" title="Password protected">🔒</span>
+                @end
+                <span class="viewer-badge" data-slug="{{ room.slug }}">
+                  <span class="live-dot"></span>
+                  <span class="viewer-count">0</span>
+                  <span class="viewer-label">watching</span>
+                </span>
+              </div>
+              <div class="room-card-body">
+                <h2 class="room-card-title">{{ room.name }}</h2>
+                <span class="room-card-cta">Enter room ›</span>
+              </div>
+            </a>
+          @end
+        </section>
+      @else
+        <div class="empty-state">
+          <h2>No rooms yet</h2>
+          <p>Create the first room, or run <code>node ace db:seed</code> for the samples.</p>
+          <a class="btn-primary" href="/create">＋ Create a room</a>
+        </div>
+      @end
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/home.js"></script>
+  </body>
+</html>

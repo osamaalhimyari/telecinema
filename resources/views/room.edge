@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ room.name }} — Watch Party</title>
+    <link rel="stylesheet" href="/css/app.css?v=7" />
+  </head>
+  <body class="page-room">
+    @include('partials/flash')
+
+    <div class="room-topbar">
+      <a class="room-back" href="/">‹ Rooms</a>
+      <h1 class="room-title">{{ room.name }}</h1>
+      <span class="viewer-badge">
+        <span class="live-dot"></span>
+        <span class="viewer-count" id="viewerCount">0</span>
+        <span class="viewer-label">watching</span>
+      </span>
+      <button class="room-delete-btn" id="deleteBtn" type="button">Delete</button>
+    </div>
+
+    <main class="player-stage">
+      <div class="player" id="player">
+        {{-- The rotor holds everything that turns together when rotated:
+             the video and both control bars. --}}
+        <div class="player-rotor" id="playerRotor">
+          <video
+            id="video"
+            class="player-video"
+            src="/video/{{ room.videoFilename }}"
+            preload="auto"
+            playsinline
+          ></video>
+
+          {{-- Top controls: speaking indicator + push-to-talk + rotate + fullscreen --}}
+          <div class="top-controls" id="topControls">
+            <span class="voice-indicator" id="voiceIndicator" aria-live="polite">
+              <span class="voice-wave"></span> Someone is speaking
+            </span>
+            <button
+              class="ctrl-btn mic-btn"
+              id="micBtn"
+              type="button"
+              aria-label="Hold to talk"
+              title="Hold to talk"
+            >🎙</button>
+            <button class="ctrl-btn" id="rotate" type="button" aria-label="Rotate video" title="Rotate video">⟳</button>
+            <button class="ctrl-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
+          </div>
+
+          <div class="controls" id="controls">
+            <button class="ctrl-btn" id="playPause" type="button" aria-label="Play or pause">▶</button>
+            <button class="ctrl-btn" id="back10" type="button" aria-label="Back 10 seconds">« 10s</button>
+            <button class="ctrl-btn" id="fwd10" type="button" aria-label="Forward 10 seconds">10s »</button>
+
+            <span class="time-label" id="curTime">0:00</span>
+            <input
+              class="seek-bar"
+              id="seek"
+              type="range"
+              min="0"
+              max="100"
+              step="0.1"
+              value="0"
+              aria-label="Seek"
+            />
+            <span class="time-label" id="durTime">0:00</span>
+          </div>
+        </div>
+
+        {{-- Overlays sit outside the rotor so messages stay upright --}}
+
+        {{-- Shown when unmuted autoplay is blocked until the user interacts --}}
+        <div class="player-overlay player-gate" id="playGate">
+          <div class="overlay-card">
+            <div class="overlay-icon">▶</div>
+            <div class="overlay-title">Tap to join the watch party</div>
+            <div class="overlay-sub">Browsers block sound-on autoplay until you interact.</div>
+          </div>
+        </div>
+
+        {{-- Shown when the video file is missing from storage/videos/ --}}
+        <div class="player-overlay player-error" id="videoError">
+          <div class="overlay-card">
+            <div class="overlay-icon">⚠</div>
+            <div class="overlay-title">Video file not found</div>
+            <div class="overlay-sub">
+              Add <code>{{ room.videoFilename }}</code> to <code>storage/videos/</code>.
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    {{-- Delete confirmation modal --}}
+    <div class="modal" id="deleteModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+        <h2 class="modal-title" id="deleteModalTitle">Delete this room?</h2>
+        <p class="modal-text">
+          This permanently removes <strong>{{ room.name }}</strong> and its video file. The room
+          can only be deleted while nobody else is watching.
+        </p>
+
+        <form method="POST" action="/room/{{ room.slug }}/delete">
+          {{ csrfField() }}
+
+          @if(room.hasPassword)
+            <div class="field">
+              <label class="field-label" for="deletePassword">Room password</label>
+              <input
+                class="field-input"
+                id="deletePassword"
+                name="password"
+                type="password"
+                placeholder="Enter the room password"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+          @end
+
+          <div class="modal-actions">
+            <button class="btn-ghost" id="cancelDelete" type="button">Cancel</button>
+            <button class="btn-danger" type="submit">Delete room</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      window.ROOM_SLUG = "{{ room.slug }}"
+    </script>
+    <script src="/js/room.js?v=7"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <radialGradient id="space" cx="0.7" cy="0.3" r="1">
+      <stop offset="0" stop-color="#3b357e"/>
+      <stop offset="1" stop-color="#0a0823"/>
+    </radialGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#space)"/>
+  <g fill="#e0e7ff">
+    <circle cx="80" cy="70" r="2.5"/>
+    <circle cx="180" cy="140" r="1.8"/>
+    <circle cx="300" cy="60" r="2.2"/>
+    <circle cx="430" cy="120" r="1.6"/>
+    <circle cx="120" cy="260" r="2"/>
+    <circle cx="250" cy="330" r="2.4"/>
+    <circle cx="540" cy="300" r="1.7"/>
+    <circle cx="700" cy="380" r="2.2"/>
+    <circle cx="620" cy="70" r="1.9"/>
+    <circle cx="360" cy="250" r="1.5"/>
+  </g>
+  <ellipse cx="560" cy="220" rx="150" ry="40" fill="none" stroke="#a78bfa" stroke-width="6" opacity="0.55"/>
+  <circle cx="560" cy="220" r="92" fill="#7c6cf0"/>
+  <circle cx="528" cy="190" r="22" fill="#9d90f5" opacity="0.8"/>
+  <circle cx="600" cy="250" r="14" fill="#5b4cc4" opacity="0.9"/>
+  <text x="44" y="404" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#ede9fe">Space Exploration</text>
+</svg>

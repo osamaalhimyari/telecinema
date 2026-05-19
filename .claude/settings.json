@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"c:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" && mkdir -p public/css public/js public/thumbnails storage/videos database/seeders providers && echo \"dirs created\" && ls -d public/css public/js public/thumbnails storage/videos database/seeders providers)",
+      "Bash(node ace *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT:$?\")"
+    ],
+    "additionalDirectories": [
+      "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public"
+    ]
+  }
+}

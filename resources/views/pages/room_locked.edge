@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ room.name }} — Locked</title>
+    <link rel="stylesheet" href="/css/app.css" />
+  </head>
+  <body class="page-create">
+    @include('partials/flash')
+
+    <main class="create-stage">
+      <div class="create-card create-card-narrow">
+        <a class="room-back" href="/">‹ Rooms</a>
+        <div class="locked-icon" aria-hidden="true">🔒</div>
+        <h1 class="create-title">{{ room.name }}</h1>
+        <p class="create-sub">This room is password protected. Enter the password to join.</p>
+
+        <form class="create-form" method="POST" action="/room/{{ room.slug }}/unlock">
+          {{ csrfField() }}
+
+          <div class="field">
+            <label class="field-label" for="password">Room password</label>
+            <input
+              class="field-input"
+              id="password"
+              name="password"
+              type="password"
+              placeholder="Enter password"
+              autocomplete="current-password"
+              autofocus
+              required
+            />
+          </div>
+
+          <button class="btn-primary btn-block" type="submit">Enter room</button>
+        </form>
+      </div>
+    </main>
+  </body>
+</html>

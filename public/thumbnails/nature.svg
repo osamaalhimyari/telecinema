@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f6f43"/>
+      <stop offset="1" stop-color="#06281a"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#sky)"/>
+  <circle cx="630" cy="120" r="58" fill="#d9f99d" opacity="0.9"/>
+  <circle cx="630" cy="120" r="86" fill="#d9f99d" opacity="0.15"/>
+  <polygon points="0,450 220,210 380,450" fill="#0c3b25"/>
+  <polygon points="240,450 460,170 700,450" fill="#10502f"/>
+  <polygon points="520,450 690,250 800,420 800,450" fill="#0a3320"/>
+  <polygon points="420,250 460,170 500,250" fill="#ecfccb" opacity="0.85"/>
+  <text x="44" y="404" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#ecfdf5">Nature Documentary</text>
+</svg>

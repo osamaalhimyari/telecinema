@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <defs>
+    <linearGradient id="deep" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e7490"/>
+      <stop offset="1" stop-color="#04223a"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#deep)"/>
+  <circle cx="660" cy="90" r="120" fill="#67e8f9" opacity="0.12"/>
+  <path d="M0,150 Q200,110 400,150 T800,150 V450 H0 Z" fill="#0b6b86" opacity="0.7"/>
+  <path d="M0,230 Q200,190 400,230 T800,230 V450 H0 Z" fill="#0a546d" opacity="0.8"/>
+  <path d="M0,310 Q200,270 400,310 T800,310 V450 H0 Z" fill="#073a52"/>
+  <g fill="#a5f3fc" opacity="0.7">
+    <circle cx="160" cy="370" r="5"/>
+    <circle cx="180" cy="340" r="3"/>
+    <circle cx="540" cy="395" r="6"/>
+    <circle cx="560" cy="360" r="3.5"/>
+  </g>
+  <text x="44" y="404" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#ecfeff">Ocean Depths</text>
+</svg>

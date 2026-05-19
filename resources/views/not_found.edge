@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Room not found — Watch Party</title>
+    <link rel="stylesheet" href="/css/app.css" />
+  </head>
+  <body class="page-error">
+    <main class="error-stage">
+      <div class="error-card">
+        <div class="error-code">404</div>
+        <h1 class="error-title">That room doesn't exist</h1>
+        <p class="error-text">
+          @if(slug)
+            No room with the slug <code>{{ slug }}</code> was found.
+          @else
+            The room you're looking for could not be found.
+          @end
+        </p>
+        <a class="error-link" href="/">‹ Back to all rooms</a>
+      </div>
+    </main>
+  </body>
+</html>

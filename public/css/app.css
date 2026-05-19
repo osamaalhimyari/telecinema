@@ -1,0 +1,1269 @@
+/* ==========================================================================
+   Watch Party — global dark theme
+   ========================================================================== */
+
+:root {
+  --bg: #0d0d0d;
+  --surface: #1a1a1a;
+  --surface-2: #232323;
+  --border: #2e2e2e;
+  --text: #ededed;
+  --text-dim: #8a8a8a;
+  --accent: #2dd4bf;
+  --accent-dim: #16a394;
+  --live: #22c55e;
+  --danger: #f87171;
+  --radius: 12px;
+  --ease: 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+code {
+  font-family: 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 0.85em;
+  color: var(--accent);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ==========================================================================
+   Live viewer badge (shared by home + room pages)
+   ========================================================================== */
+
+.viewer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  animation: pulse 1.8s infinite;
+}
+
+.viewer-label {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+/* ==========================================================================
+   Home page
+   ========================================================================== */
+
+.site-header {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 56px 32px 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  font-size: 1.9rem;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.brand-name {
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.brand-tagline {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-size: 1rem;
+}
+
+.home-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 32px 64px;
+}
+
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px;
+}
+
+.room-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition:
+    transform var(--ease),
+    border-color var(--ease),
+    box-shadow var(--ease);
+}
+
+.room-card:hover {
+  transform: scale(1.025);
+  border-color: var(--accent-dim);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+}
+
+.room-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #1f2937, #0f172a);
+  overflow: hidden;
+}
+
+.room-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--ease);
+}
+
+.room-thumb-img.is-broken {
+  visibility: hidden;
+}
+
+.room-card:hover .room-thumb-img {
+  transform: scale(1.06);
+}
+
+.room-thumb .viewer-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.room-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px;
+}
+
+.room-card-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.room-card-cta {
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition:
+    opacity var(--ease),
+    transform var(--ease);
+}
+
+.room-card:hover .room-card-cta {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--text-dim);
+}
+
+.empty-state h2 {
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* ==========================================================================
+   Room page
+   ========================================================================== */
+
+.page-room {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.room-topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.room-back {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: color var(--ease);
+}
+
+.room-back:hover {
+  color: var(--accent);
+}
+
+.room-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* No padding — the player fills the whole area below the top bar so the
+     video can be as large as possible. */
+  padding: 0;
+}
+
+.player {
+  position: relative;
+  width: 100%;
+  /* Fill the stage; the video then expands to the largest size that fits. */
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+.player-video {
+  display: block;
+  /* Stretch to fill the player and scale up with the aspect ratio kept,
+     so the video is as big as it can be (clean letter-/pillar-boxing). */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* ---- Custom controls bar ------------------------------------------------- */
+
+.controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0));
+  transition: opacity 0.25s ease;
+}
+
+/* ---- Top-right controls (rotate + fullscreen) --------------------------- */
+
+.top-controls {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
+  z-index: 4;
+  transition: opacity 0.25s ease;
+}
+
+/* ---- Auto-hide: both bars (and the cursor) fade out while idle ---------- */
+
+.player.is-idle {
+  cursor: none;
+}
+
+.player.is-idle .controls,
+.player.is-idle .top-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ctrl-btn {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 42px;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    transform var(--ease);
+}
+
+.ctrl-btn:hover {
+  background: rgba(45, 212, 191, 0.18);
+  border-color: var(--accent-dim);
+}
+
+.ctrl-btn:active {
+  transform: scale(0.94);
+}
+
+#playPause {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06201d;
+  font-size: 0.95rem;
+}
+
+#playPause:hover {
+  background: #5ee3d3;
+}
+
+.time-label {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  min-width: 42px;
+  text-align: center;
+}
+
+/* ---- Custom teal seek bar ----------------------------------------------- */
+
+.seek-bar {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  outline: none;
+}
+
+.seek-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #06201d;
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.7);
+  transition: transform var(--ease);
+}
+
+.seek-bar::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+}
+
+.seek-bar::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #06201d;
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.7);
+}
+
+.seek-bar::-moz-range-progress {
+  background: var(--accent);
+  height: 6px;
+  border-radius: 999px;
+}
+
+/* ---- Player overlays (autoplay gate + missing-file error) --------------- */
+
+.player-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(3px);
+  z-index: 5;
+}
+
+.player-overlay.is-visible {
+  display: flex;
+}
+
+.player-gate {
+  cursor: pointer;
+}
+
+.overlay-card {
+  text-align: center;
+  padding: 28px;
+  max-width: 360px;
+}
+
+.overlay-icon {
+  font-size: 2.6rem;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.player-error .overlay-icon {
+  color: var(--danger);
+}
+
+.overlay-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.overlay-sub {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+/* ==========================================================================
+   404 / error page
+   ========================================================================== */
+
+.page-error {
+  display: flex;
+}
+
+.error-stage {
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.error-card {
+  text-align: center;
+  max-width: 420px;
+}
+
+.error-code {
+  font-size: 4.5rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.error-title {
+  font-size: 1.4rem;
+  margin: 10px 0 8px;
+}
+
+.error-text {
+  color: var(--text-dim);
+  margin-bottom: 22px;
+}
+
+.error-link {
+  display: inline-block;
+  background: var(--accent);
+  color: #06201d;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 8px;
+  transition:
+    background var(--ease),
+    transform var(--ease);
+}
+
+.error-link:hover {
+  background: #5ee3d3;
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   Small screens
+   ========================================================================== */
+
+@media (max-width: 560px) {
+  .site-header {
+    padding: 36px 20px 20px;
+  }
+
+  .home-main {
+    padding: 12px 20px 48px;
+  }
+
+  .controls {
+    gap: 9px;
+    padding: 12px;
+  }
+
+  .ctrl-btn {
+    padding: 7px 9px;
+    min-width: 38px;
+    font-size: 0.78rem;
+  }
+
+  .time-label {
+    min-width: 34px;
+    font-size: 0.72rem;
+  }
+
+  .create-card {
+    padding: 24px 20px;
+  }
+}
+
+/* ==========================================================================
+   Buttons (shared)
+   ========================================================================== */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: #06201d;
+  font-weight: 700;
+  font-size: 0.9rem;
+  font-family: inherit;
+  padding: 10px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    transform var(--ease);
+}
+
+.btn-primary:hover {
+  background: #5ee3d3;
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color var(--ease),
+    border-color var(--ease);
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #2a0a0a;
+  font-weight: 700;
+  font-size: 0.88rem;
+  font-family: inherit;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background var(--ease);
+}
+
+.btn-danger:hover {
+  background: #fb9b9b;
+}
+
+/* ==========================================================================
+   Flash banner (home / room / create / locked pages)
+   ========================================================================== */
+
+.flash-stack {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: calc(100% - 32px);
+  max-width: 440px;
+}
+
+.flash {
+  padding: 11px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation:
+    flashIn 0.3s ease,
+    flashOut 0.5s ease 6s forwards;
+}
+
+.flash-success {
+  background: #0f2e1c;
+  border: 1px solid var(--live);
+  color: #86efac;
+}
+
+.flash-error {
+  background: #2e1313;
+  border: 1px solid var(--danger);
+  color: #fca5a5;
+}
+
+@keyframes flashIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes flashOut {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* ==========================================================================
+   Home page — header row + room-card badges
+   ========================================================================== */
+
+.site-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.empty-state .btn-primary {
+  margin-top: 16px;
+}
+
+.lock-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 0.78rem;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+}
+
+.room-thumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  opacity: 0.6;
+}
+
+/* ==========================================================================
+   Create-room + locked-room pages
+   ========================================================================== */
+
+.page-create {
+  display: flex;
+}
+
+.create-stage {
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.create-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+}
+
+.create-card-narrow {
+  max-width: 400px;
+  text-align: center;
+}
+
+.create-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 14px 0 6px;
+}
+
+.create-sub {
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  margin-bottom: 22px;
+}
+
+.locked-icon {
+  font-size: 2.6rem;
+  margin-top: 14px;
+}
+
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+}
+
+.field-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.field-hint {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.field-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-family: inherit;
+  padding: 10px 12px;
+  width: 100%;
+  transition: border-color var(--ease);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+.field-input::placeholder {
+  color: #5c5c5c;
+}
+
+.password-row {
+  position: relative;
+  display: flex;
+}
+
+.password-row .field-input {
+  padding-right: 66px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* ---- File dropzone ------------------------------------------------------- */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 18px;
+  background: var(--surface-2);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color var(--ease),
+    background var(--ease);
+}
+
+.dropzone:hover,
+.dropzone.is-dragover {
+  border-color: var(--accent-dim);
+  background: rgba(45, 212, 191, 0.06);
+}
+
+.dropzone.has-file {
+  border-style: solid;
+  border-color: var(--accent-dim);
+}
+
+.dropzone-icon {
+  font-size: 1.6rem;
+  color: var(--accent);
+}
+
+.dropzone-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.dropzone-hint {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+/* ---- Upload progress ----------------------------------------------------- */
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.upload-progress-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.upload-progress-label {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  min-width: 78px;
+  text-align: right;
+}
+
+.form-error {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+/* ==========================================================================
+   Room page — delete button, rotate state, rotated player, delete modal
+   ========================================================================== */
+
+.room-delete-btn {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 13px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color var(--ease),
+    border-color var(--ease),
+    background var(--ease);
+}
+
+.room-delete-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+#rotate {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.ctrl-btn.is-active {
+  background: rgba(45, 212, 191, 0.22);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ctrl-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- Push-to-talk microphone button ------------------------------------- */
+
+.mic-btn {
+  font-size: 1rem;
+  line-height: 1;
+  /* Stop a press-and-hold from selecting text or triggering touch gestures. */
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.mic-btn.is-talking {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #2a0a0a;
+  animation: micPulse 1.2s infinite;
+}
+
+@keyframes micPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 11px rgba(248, 113, 113, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0);
+  }
+}
+
+/* ---- "Someone is speaking" indicator ------------------------------------ */
+
+.voice-indicator {
+  margin-right: auto;
+  display: none;
+  align-items: center;
+  gap: 7px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  backdrop-filter: blur(4px);
+}
+
+.voice-indicator.is-visible {
+  display: inline-flex;
+}
+
+.voice-wave {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: voiceWave 1.1s ease-in-out infinite;
+}
+
+@keyframes voiceWave {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---- Rotation: the rotor (video + both control bars) turns as one unit -- */
+
+.player-rotor {
+  position: relative;
+  width: 100%;
+  /* Fill the player so the video inside can expand to full size. When the
+     player is rotated or fullscreen, room.js / the fullscreen rules give the
+     rotor an explicit size that overrides this. */
+  height: 100%;
+}
+
+.player.is-rotated {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player.is-rotated .player-video {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
+/* === Fullscreen =========================================================
+   The player fills the screen; the rotor and the video are stretched
+   edge-to-edge with absolute positioning (no fragile percentage-height
+   chains), and the video uses object-fit: contain so it scales UP to fill
+   the screen on whichever axis its aspect ratio allows. Each rule is
+   declared three times — the :fullscreen pseudo-class, its -webkit- variant,
+   and a JS-toggled class — every variant on its own line so one unknown
+   pseudo-class cannot invalidate the others, and so it still works even if
+   a cached room.js never adds the class. */
+
+.player:fullscreen {
+  border-radius: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.player:-webkit-full-screen {
+  border-radius: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.player.is-fullscreen {
+  border-radius: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Non-rotated: the rotor is stretched to cover the whole screen. (When the
+   player is rotated, room.js sizes the rotor itself, so it is excluded.) */
+.player:fullscreen:not(.is-rotated) .player-rotor {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+.player:-webkit-full-screen:not(.is-rotated) .player-rotor {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+.player.is-fullscreen:not(.is-rotated) .player-rotor {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+/* The video is stretched edge-to-edge inside its rotor and scaled up with
+   its aspect ratio preserved. */
+.player:fullscreen .player-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+.player:-webkit-full-screen .player-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+.player.is-fullscreen .player-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+/* === Mobile landscape ===================================================
+   When a phone is held sideways the video fills the screen corner to corner
+   and every control floats on top of it — nothing takes layout space.
+
+   `!important` is deliberate and necessary here: this one rule must win over
+   the rotation styles, the fullscreen styles, AND any inline width/height
+   that room.js may have written, no matter what state the player was left
+   in when the phone was turned. The short height + coarse pointer keep it
+   scoped to phones, not desktops or tablets. */
+@media (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
+  .page-room {
+    overflow: hidden;
+  }
+
+  /* The player covers the entire viewport. */
+  .player {
+    position: fixed !important;
+    inset: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    z-index: 50 !important;
+    border-radius: 0 !important;
+  }
+
+  /* The rotor fills the player, with any JS rotation/sizing cancelled. */
+  .player-rotor {
+    position: absolute !important;
+    inset: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    transform: none !important;
+  }
+
+  /* The video is as large as it can be while showing the whole frame —
+     object-fit: contain, so it is never zoomed in or cropped. */
+  .player-video {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    object-fit: contain !important;
+  }
+
+  /* Both control bars float on the video and never take layout space. */
+  .controls,
+  .top-controls {
+    position: absolute !important;
+  }
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.modal.is-open {
+  display: flex;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 26px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.7);
+}
+
+.modal-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.modal-text {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin-bottom: 18px;
+}
+
+.modal-card .field {
+  margin-bottom: 18px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

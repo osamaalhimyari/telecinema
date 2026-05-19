@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Create a room — Watch Party</title>
+    <link rel="stylesheet" href="/css/app.css?v=7" />
+  </head>
+  <body class="page-create">
+    @include('partials/flash')
+
+    <main class="create-stage">
+      <div class="create-card">
+        <a class="room-back" href="/">‹ Rooms</a>
+        <h1 class="create-title">Create a room</h1>
+        <p class="create-sub">
+          Give the room a name, upload a video, and optionally lock it with a password.
+        </p>
+
+        <form
+          id="createForm"
+          class="create-form"
+          method="POST"
+          action="/rooms"
+          enctype="multipart/form-data"
+        >
+          {{ csrfField() }}
+
+          <div class="field">
+            <label class="field-label" for="name">Room name</label>
+            <input
+              class="field-input"
+              id="name"
+              name="name"
+              type="text"
+              maxlength="80"
+              placeholder="Friday Movie Night"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="password">
+              Password <span class="field-hint">— optional, 4+ characters</span>
+            </label>
+            <div class="password-row">
+              <input
+                class="field-input"
+                id="password"
+                name="password"
+                type="password"
+                minlength="4"
+                maxlength="64"
+                placeholder="Leave empty for an open room"
+                autocomplete="new-password"
+              />
+              <button class="password-toggle" id="passwordToggle" type="button" tabindex="-1">
+                Show
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Video file</label>
+            <label class="dropzone" id="dropzone" for="video">
+              {{-- `required` is intentionally omitted: a hidden file input
+                   cannot host the browser's validation bubble. The presence
+                   of a file is enforced in create_room.js instead. --}}
+              <input
+                id="video"
+                name="video"
+                type="file"
+                accept="video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.m4v,.webm,.ogv,.ogg,.mov"
+                hidden
+              />
+              <span class="dropzone-icon" aria-hidden="true">⬆</span>
+              <span class="dropzone-text" id="dropzoneText">
+                Click to choose a video, or drop it here
+              </span>
+              <span class="dropzone-hint">MP4, WebM, OGG or MOV — up to 15&nbsp;GB</span>
+            </label>
+          </div>
+
+          <div class="upload-progress" id="uploadProgress" hidden>
+            <div class="upload-progress-bar"><span id="uploadProgressFill"></span></div>
+            <span class="upload-progress-label" id="uploadProgressLabel">0%</span>
+          </div>
+
+          <p class="form-error" id="formError" hidden></p>
+
+          <button class="btn-primary btn-block" id="submitBtn" type="submit">Create room</button>
+        </form>
+      </div>
+    </main>
+
+    <script src="/js/create_room.js?v=7"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{{--
+  Lightweight flash banner shared by the standalone (non-Vite) pages:
+  home, room, create-room and the room unlock page. Self-styled in
+  public/css/app.css and auto-dismissed by a pure-CSS animation.
+--}}
+@if(flashMessages.has('success') || flashMessages.has('error'))
+  <div class="flash-stack">
+    @if(flashMessages.has('success'))
+      <div class="flash flash-success" role="status">{{ flashMessages.get('success') }}</div>
+    @end
+    @if(flashMessages.has('error'))
+      <div class="flash flash-error" role="alert">{{ flashMessages.get('error') }}</div>
+    @end
+  </div>
+@end
