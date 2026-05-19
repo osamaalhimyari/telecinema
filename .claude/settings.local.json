@@ -45,7 +45,10 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git cat-file *)",
-      "Bash(awk '$1==\"blob\"{print $3, $4}')"
+      "Bash(awk '$1==\"blob\"{print $3, $4}')",
+      "Bash(git push *)",
+      "Bash(git reflog *)",
+      "Bash(git gc *)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\storage\\videos"
