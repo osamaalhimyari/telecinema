@@ -32,6 +32,13 @@ router.get('/create', [RoomsController, 'create']).as('rooms.create')
 router.post('/rooms', [RoomsController, 'store']).as('rooms.store')
 
 /**
+ * Progress poll for a room being created from a pasted video link.
+ */
+router
+  .get('/rooms/download/:jobId', [RoomsController, 'downloadProgress'])
+  .as('rooms.downloadProgress')
+
+/**
  * Room — the synchronized video player for a single room.
  */
 router.get('/room/:slug', [RoomsController, 'show']).as('rooms.show')

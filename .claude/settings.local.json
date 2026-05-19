@@ -48,7 +48,15 @@
       "Bash(awk '$1==\"blob\"{print $3, $4}')",
       "Bash(git push *)",
       "Bash(git reflog *)",
-      "Bash(git gc *)"
+      "Bash(git gc *)",
+      "Bash(curl -s -i http://localhost:3333/rooms/download/bogus-id-123)",
+      "Bash(curl -s http://localhost:3333/create)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{size_download}bytes\\\\n\" --max-time 15 https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4)",
+      "Bash(curl -s -c cj.txt http://localhost:3333/create)",
+      "Bash(curl -s http://localhost:3333/rooms/download/338e7af6-de3d-4c98-ba5b-e7bfeac5eff7)",
+      "Bash(curl -s -o /dev/null -w \"GET /room/curl-test-room -> %{http_code}\\\\n\" http://localhost:3333/room/curl-test-room)",
+      "Bash(curl -s -r 0-1023 -o /dev/null -w \"GET /video/curl-test-room.mp4 \\(range\\) -> %{http_code} type=%{content_type}\\\\n\" http://localhost:3333/video/curl-test-room.mp4)",
+      "Bash(curl -s http://localhost:3333/)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\storage\\videos"

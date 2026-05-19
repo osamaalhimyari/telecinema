@@ -7,6 +7,7 @@ export type ScannedRoutes = {
     'home': { paramsTuple?: []; params?: {} }
     'rooms.create': { paramsTuple?: []; params?: {} }
     'rooms.store': { paramsTuple?: []; params?: {} }
+    'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
@@ -20,6 +21,7 @@ export type ScannedRoutes = {
   GET: {
     'home': { paramsTuple?: []; params?: {} }
     'rooms.create': { paramsTuple?: []; params?: {} }
+    'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
@@ -28,6 +30,7 @@ export type ScannedRoutes = {
   HEAD: {
     'home': { paramsTuple?: []; params?: {} }
     'rooms.create': { paramsTuple?: []; params?: {} }
+    'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }

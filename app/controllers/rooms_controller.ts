@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom } from '#start/socket'
+import { startUrlDownload, getJob } from '#services/video_downloader'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -49,10 +50,11 @@ export default class RoomsController {
 
   /**
    * Session key under which a successful password unlock is remembered, so a
-   * visitor only has to enter a room's password once per session.
+   * visitor only has to enter a room's password once per session. Keyed by id
+   * so it can also be set from a download job, where only the id is at hand.
    */
-  private unlockKey(room: Room): string {
-    return `room_unlocked_${room.id}`
+  private unlockKey(roomId: number): string {
+    return `room_unlocked_${roomId}`
   }
 
   /**
@@ -68,7 +70,7 @@ export default class RoomsController {
       return view.render('not_found', { slug: params.slug })
     }
 
-    if (room.hasPassword && session.get(this.unlockKey(room)) !== true) {
+    if (room.hasPassword && session.get(this.unlockKey(room.id)) !== true) {
       return view.render('pages/room_locked', { room })
     }
 
@@ -84,14 +86,19 @@ export default class RoomsController {
   }
 
   /**
-   * Persists a new room: validates the form, stores the uploaded video under
-   * `storage/videos/`, hashes the optional password and inserts the row.
+   * Persists a new room. Its video arrives one of two ways:
+   *
+   * - an **uploaded file**, stored under `storage/videos/` and the room row
+   *   inserted right away; or
+   * - a **pasted link**, which is handed to a background download job — the
+   *   room is created by that job once the bytes are on disk, and this
+   *   request only returns the `jobId` the browser polls for progress.
    *
    * The create page submits over XHR, so failures are returned as JSON when
    * the request is an AJAX request and as a flash + redirect otherwise.
    */
   async store({ request, response, session }: HttpContext) {
-    const { name, password } = await request.validateUsing(createRoomValidator)
+    const { name, password, videoUrl } = await request.validateUsing(createRoomValidator)
     const wantsJson = request.ajax()
 
     /** Reports a failure through whichever channel the client expects. */
@@ -102,8 +109,28 @@ export default class RoomsController {
     }
 
     const video = request.file('video', { size: MAX_VIDEO_SIZE, extnames: VIDEO_EXTENSIONS })
+
+    /**
+     * Link flow — only when no file was chosen, so an upload always wins if
+     * the visitor somehow supplied both. The room is not created here; the
+     * download job creates it once the video has finished downloading.
+     */
+    if (!video && videoUrl) {
+      let jobId: string
+      try {
+        jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl })
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : 'That link could not be used.')
+      }
+
+      if (wantsJson) {
+        return response.json({ jobId })
+      }
+      return fail('Creating a room from a link requires JavaScript to be enabled.')
+    }
+
     if (!video) {
-      return fail('Please choose a video file to upload.')
+      return fail('Please paste a video link or choose a video file to upload.')
     }
     if (!video.isValid) {
       return fail(video.errors[0]?.message ?? 'The uploaded file is not a supported video.')
@@ -147,7 +174,7 @@ export default class RoomsController {
      * they are not immediately challenged for it.
      */
     if (room.hasPassword) {
-      session.put(this.unlockKey(room), true)
+      session.put(this.unlockKey(room.id), true)
     }
 
     if (wantsJson) {
@@ -156,6 +183,38 @@ export default class RoomsController {
 
     session.flash('success', `Room "${room.name}" is ready.`)
     return response.redirect(`/room/${room.slug}`)
+  }
+
+  /**
+   * Progress endpoint for a link-based room creation. The browser polls this
+   * while the server downloads the video and reads the running byte count to
+   * drive its progress bar. The room only exists once the job reports `done`,
+   * at which point `redirectTo` points at it.
+   */
+  async downloadProgress({ params, response, session }: HttpContext) {
+    const job = getJob(String(params.jobId))
+    if (!job) {
+      return response
+        .status(404)
+        .json({ status: 'error', error: 'That download is no longer available.' })
+    }
+
+    /**
+     * The creator already knows any password they set, so unlock the finished
+     * room for them in this session — exactly as the upload flow does.
+     */
+    if (job.status === 'done' && job.roomHasPassword && job.roomId !== null) {
+      session.put(this.unlockKey(job.roomId), true)
+    }
+
+    return response.json({
+      status: job.status,
+      percent: job.percent,
+      bytesDownloaded: job.bytesDownloaded,
+      totalBytes: job.totalBytes,
+      error: job.error,
+      redirectTo: job.redirectTo,
+    })
   }
 
   /**
@@ -170,7 +229,7 @@ export default class RoomsController {
 
     const password = String(request.input('password') ?? '')
     if (room.passwordHash && (await hash.verify(room.passwordHash, password))) {
-      session.put(this.unlockKey(room), true)
+      session.put(this.unlockKey(room.id), true)
       return response.redirect(`/room/${room.slug}`)
     }
 
@@ -222,7 +281,7 @@ export default class RoomsController {
     }
 
     dropRoom(room.slug)
-    session.forget(this.unlockKey(room))
+    session.forget(this.unlockKey(room.id))
     await room.delete()
 
     session.flash('success', `Room "${room.name}" and its video were deleted.`)

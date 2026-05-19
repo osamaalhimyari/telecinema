@@ -905,7 +905,27 @@ a {
   color: var(--text-dim);
 }
 
-/* ---- Upload progress ----------------------------------------------------- */
+/* ---- "or" divider between the link field and the file dropzone ---------- */
+
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.or-divider::before,
+.or-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- Upload / download progress ------------------------------------------ */
 
 .upload-progress {
   display: flex;
@@ -928,6 +948,25 @@ a {
   width: 0;
   background: var(--accent);
   transition: width 0.2s ease;
+}
+
+/**
+ * Indeterminate state — used while downloading a link whose total size the
+ * remote server never disclosed, so a sweeping stripe stands in for a fill.
+ */
+.upload-progress-bar.is-indeterminate span {
+  width: 35%;
+  transition: none;
+  animation: upload-indeterminate 1.15s ease-in-out infinite;
+}
+
+@keyframes upload-indeterminate {
+  from {
+    transform: translateX(-115%);
+  }
+  to {
+    transform: translateX(330%);
+  }
 }
 
 .upload-progress-label {

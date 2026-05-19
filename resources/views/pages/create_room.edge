@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Create a room — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=7" />
+    <link rel="stylesheet" href="/css/app.css?v=8" />
   </head>
   <body class="page-create">
     @include('partials/flash')
@@ -14,7 +14,8 @@
         <a class="room-back" href="/">‹ Rooms</a>
         <h1 class="create-title">Create a room</h1>
         <p class="create-sub">
-          Give the room a name, upload a video, and optionally lock it with a password.
+          Give the room a name, paste a video link — or upload a file — and optionally lock it
+          with a password.
         </p>
 
         <form
@@ -61,11 +62,28 @@
           </div>
 
           <div class="field">
-            <label class="field-label">Video file</label>
+            <label class="field-label" for="videoUrl">Video link</label>
+            <input
+              class="field-input"
+              id="videoUrl"
+              name="videoUrl"
+              type="url"
+              maxlength="2048"
+              placeholder="https://example.com/movie.mp4"
+            />
+            <span class="field-hint">
+              A direct link to an MP4, WebM, OGG or MOV file. The server downloads it before the
+              room opens.
+            </span>
+          </div>
+
+          <div class="or-divider"><span>or upload a file</span></div>
+
+          <div class="field">
             <label class="dropzone" id="dropzone" for="video">
               {{-- `required` is intentionally omitted: a hidden file input
                    cannot host the browser's validation bubble. The presence
-                   of a file is enforced in create_room.js instead. --}}
+                   of a video — link or file — is enforced in create_room.js. --}}
               <input
                 id="video"
                 name="video"
@@ -93,6 +111,6 @@
       </div>
     </main>
 
-    <script src="/js/create_room.js?v=7"></script>
+    <script src="/js/create_room.js?v=8"></script>
   </body>
 </html>
