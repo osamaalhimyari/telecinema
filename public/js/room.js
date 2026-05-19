@@ -20,6 +20,7 @@
   var curTime = document.getElementById('curTime')
   var durTime = document.getElementById('durTime')
   var viewerCount = document.getElementById('viewerCount')
+  var viewerCountFs = document.getElementById('viewerCountFs')
   var playGate = document.getElementById('playGate')
   var videoError = document.getElementById('videoError')
   var rotateBtn = document.getElementById('rotate')
@@ -145,6 +146,8 @@
   socket.on('viewer_count', function (data) {
     if (data && typeof data.count === 'number') {
       viewerCount.textContent = data.count
+      // Mirror it onto the in-player badge shown during fullscreen.
+      if (viewerCountFs) viewerCountFs.textContent = data.count
     }
   })
 
@@ -406,9 +409,11 @@
 
   /* ------------------------------------------------------------------------
      Auto-hiding controls — both control bars fade away (and the cursor with
-     them) after a short idle period with no pointer or touch activity, and
-     reappear on the next movement or tap. This happens whether the video is
-     playing or paused; the bars only stay up while the talk button is held.
+     them) after a short idle period with no pointer or touch activity. On a
+     mouse, moving the pointer brings them back; on a touchscreen a tap on the
+     video toggles them — tap to show, tap again to hide. This happens whether
+     the video is playing or paused; the bars only stay up while the talk
+     button is held.
      ------------------------------------------------------------------------ */
 
   var idleTimer = null
@@ -429,8 +434,45 @@
     idleTimer = setTimeout(hideControls, IDLE_MS)
   }
 
-  player.addEventListener('mousemove', scheduleControlsHide)
-  player.addEventListener('touchstart', scheduleControlsHide, { passive: true })
+  /**
+   * A tap fires synthetic mouse events (mousemove/click) right after the
+   * touch ones; this timestamp lets the mouse handlers ignore that echo so a
+   * tap-to-hide is not immediately undone by a phantom mousemove.
+   */
+  var ignoreMouseUntil = 0
+
+  /** True when the tapped element is one of the actual control widgets. */
+  function tappedOnControls(node) {
+    return !!(node && node.closest && node.closest('.controls, .top-controls'))
+  }
+
+  player.addEventListener('mousemove', function () {
+    if (Date.now() < ignoreMouseUntil) return
+    scheduleControlsHide()
+  })
+
+  player.addEventListener(
+    'touchstart',
+    function (e) {
+      ignoreMouseUntil = Date.now() + 700
+
+      // Taps that land on a button or the seek bar drive that widget and
+      // just keep the bars up — they never toggle them away.
+      if (tappedOnControls(e.target)) {
+        scheduleControlsHide()
+        return
+      }
+
+      // A tap on the video area toggles the bars: show if hidden, else hide.
+      if (player.classList.contains('is-idle')) {
+        scheduleControlsHide()
+      } else {
+        clearTimeout(idleTimer)
+        hideControls()
+      }
+    },
+    { passive: true }
+  )
 
   player.addEventListener('mouseleave', function () {
     clearTimeout(idleTimer)

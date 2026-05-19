@@ -58,7 +58,8 @@
       "Bash(curl -s -r 0-1023 -o /dev/null -w \"GET /video/curl-test-room.mp4 \\(range\\) -> %{http_code} type=%{content_type}\\\\n\" http://localhost:3333/video/curl-test-room.mp4)",
       "Bash(curl -s http://localhost:3333/)",
       "Bash(git fetch *)",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "Bash(git -C \"c:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" ls-files)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\storage\\videos"

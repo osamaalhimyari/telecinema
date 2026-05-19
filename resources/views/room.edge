@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=7" />
+    <link rel="stylesheet" href="/css/app.css?v=8" />
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -33,11 +33,19 @@
             playsinline
           ></video>
 
-          {{-- Top controls: speaking indicator + push-to-talk + rotate + fullscreen --}}
+          {{-- Top controls: speaking indicator + viewer count + push-to-talk + rotate + fullscreen --}}
           <div class="top-controls" id="topControls">
             <span class="voice-indicator" id="voiceIndicator" aria-live="polite">
               <span class="voice-wave"></span> Someone is speaking
             </span>
+
+            {{-- Viewer count — only shown in fullscreen, where the topbar is hidden --}}
+            <span class="viewer-badge viewer-badge--player" id="viewerBadgeFs">
+              <span class="live-dot"></span>
+              <span class="viewer-count" id="viewerCountFs">0</span>
+              <span class="viewer-label">watching</span>
+            </span>
+
             <button
               class="ctrl-btn mic-btn"
               id="micBtn"
@@ -132,6 +140,6 @@
     <script>
       window.ROOM_SLUG = "{{ room.slug }}"
     </script>
-    <script src="/js/room.js?v=7"></script>
+    <script src="/js/room.js?v=8"></script>
   </body>
 </html>

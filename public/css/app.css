@@ -328,6 +328,17 @@ a {
   transition: opacity 0.25s ease;
 }
 
+/* The in-player viewer badge rides with the top buttons; only visible in
+   fullscreen, where the page topbar (and its own viewer badge) is hidden. */
+.viewer-badge--player {
+  display: none;
+  align-self: center;
+}
+
+.player.is-fullscreen .viewer-badge--player {
+  display: inline-flex;
+}
+
 /* ---- Auto-hide: both bars (and the cursor) fade out while idle ---------- */
 
 .player.is-idle {
