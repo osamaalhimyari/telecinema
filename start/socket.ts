@@ -14,6 +14,7 @@
 
 import { Server, type Socket } from 'socket.io'
 import type { Server as HttpServer } from 'node:http'
+import Room from '#models/room'
 
 /**
  * The authoritative playback state for a single room.
@@ -186,6 +187,74 @@ function registerHandlers(server: Server, socket: Socket) {
     socket.to(slug).emit('sync', {
       isPlaying: state.isPlaying,
       currentTime: state.currentTime,
+      serverTime: Date.now(),
+    })
+  })
+
+  /**
+   * Change the embed URL of an `external` room — used for things like
+   * jumping to the next episode of a series. Persists the new URL on the
+   * room row, resets the master playback state (the next episode always
+   * starts fresh from 0, paused), and broadcasts the change to everyone in
+   * the room so each iframe is reloaded against the new source.
+   */
+  socket.on('change_source', async (payload: { url?: unknown }) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+
+    const raw = payload?.url
+    if (typeof raw !== 'string' || raw.length === 0 || raw.length > 2048) return
+
+    let parsed: URL
+    try {
+      parsed = new URL(raw)
+    } catch {
+      return
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
+
+    const room = await Room.findBy('slug', slug)
+    if (!room || room.roomType !== 'external') return
+
+    /**
+     * Switching source clears any previous subtitle file — the cues no
+     * longer match the content. The file on disk is removed by the next
+     * subtitle upload (or by deleting the room).
+     */
+    room.externalUrl = raw
+    room.subtitleFilename = null
+    await room.save()
+
+    const state = getRoomState(slug)
+    state.isPlaying = false
+    state.currentTime = 0
+    state.lastUpdated = Date.now()
+
+    server.to(slug).emit('source_changed', {
+      url: raw,
+      isPlaying: false,
+      currentTime: 0,
+      serverTime: Date.now(),
+    })
+  })
+
+  /**
+   * Manual realignment for external (iframe) rooms. Cross-origin embeds
+   * play autonomously, so the room clock and the actual frame on screen
+   * drift over time and there is no way to read the embed's real position
+   * from outside its origin. Pressing the "Resync" button asks every
+   * client in the room (including the sender) to reload its iframe at the
+   * authoritative time, bringing everyone back in lockstep at the cost of
+   * one short reload each.
+   */
+  socket.on('force_resync', () => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+
+    const state = getRoomState(slug)
+    server.to(slug).emit('force_resync', {
+      isPlaying: state.isPlaying,
+      currentTime: effectiveTime(state),
       serverTime: Date.now(),
     })
   })

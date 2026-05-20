@@ -38,6 +38,14 @@ export default class Room extends BaseModel {
   declare externalUrl: string | null
 
   /**
+   * Filename of an uploaded subtitle file (SRT/VTT) for external rooms.
+   * Stored under `storage/subtitles/` and rendered as our own overlay on
+   * top of the iframe, since cross-origin embeds cannot host a `<track>`.
+   */
+  @column()
+  declare subtitleFilename: string | null
+
+  /**
    * Scrypt hash of the room password, or null for open rooms. Never
    * serialized so it cannot leak into a rendered page or JSON response.
    */

@@ -336,11 +336,58 @@ a {
 /**
  * The external-room paused overlay covers the (about:blank) iframe but
  * stays below the top + bottom control bars, so the play button is always
- * reachable. The default `.player-overlay` rule positions it absolutely
- * with `inset: 0`, which means it fills the rotor.
+ * reachable. The default `.player-overlay` rule (further down in this
+ * file) sets `z-index: 5`, which would cover the controls — we therefore
+ * use a higher-specificity selector so this override wins regardless of
+ * source order.
  */
-.external-paused {
+.player-overlay.external-paused {
   z-index: 3;
+}
+
+/* ---- Subtitle overlay (external rooms) --------------------------------- */
+
+/**
+ * Subtitle cues are rendered by us, on top of the iframe — cross-origin
+ * embeds cannot host a `<track>` we provide. The container is always there
+ * (so a cue swap doesn't reshuffle layout); only the inner span shows a
+ * pill when there is text to display.
+ */
+.subtitle-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 110px;
+  display: flex;
+  justify-content: center;
+  padding: 0 24px;
+  pointer-events: none;
+  z-index: 6;
+  text-align: center;
+}
+
+.subtitle-text {
+  display: inline-block;
+  max-width: min(100%, 880px);
+  font-size: clamp(0.95rem, 2.3vw, 1.4rem);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  white-space: pre-line;
+}
+
+.subtitle-text:not(:empty) {
+  background: rgba(0, 0, 0, 0.72);
+  padding: 6px 14px;
+  border-radius: 6px;
+  backdrop-filter: blur(3px);
+}
+
+/* Hide the cue card while idle controls fade — keeps the picture clean. */
+.player.is-idle .subtitle-overlay {
+  opacity: 0.85;
+  transition: opacity 0.25s ease;
 }
 
 .controls-row {

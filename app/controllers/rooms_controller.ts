@@ -2,11 +2,16 @@ import { unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
-import { getViewerCount, dropRoom } from '#start/socket'
+import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
+
+/** Accepted extensions for subtitle uploads. */
+const SUBTITLE_EXTENSIONS = ['srt', 'vtt']
+/** 2 MB is generous for a subtitle file — feature-length tracks are ~80 KB. */
+const MAX_SUBTITLE_SIZE = '2mb'
 
 /**
  * Accepted video container extensions for uploaded room videos.
@@ -330,11 +335,19 @@ export default class RoomsController {
     /**
      * Remove the video file. A missing file is not an error: the goal is
      * simply that it no longer exists afterwards. External rooms own no
-     * file at all, so the unlink is skipped for them.
+     * video file at all, so that unlink is skipped — but they may still
+     * own a subtitle file that needs the same treatment.
      */
     if (room.videoFilename) {
       try {
         await unlink(app.makePath('storage/videos', basename(room.videoFilename)))
+      } catch {
+        /* file already gone — nothing to clean up */
+      }
+    }
+    if (room.subtitleFilename) {
+      try {
+        await unlink(app.makePath('storage/subtitles', basename(room.subtitleFilename)))
       } catch {
         /* file already gone — nothing to clean up */
       }
@@ -346,5 +359,98 @@ export default class RoomsController {
 
     session.flash('success', `Room "${room.name}" and its video were deleted.`)
     return response.redirect('/')
+  }
+
+  /**
+   * Uploads a subtitle file (SRT or VTT) for an external room. Cross-origin
+   * embeds cannot host their own text tracks, so we keep the file ourselves
+   * and the client renders an overlay on top of the iframe — driven by the
+   * room's virtual playhead. Replaces any previous subtitle.
+   */
+  async uploadSubtitle({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ error: 'That room no longer exists.' })
+    }
+    if (room.roomType !== 'external') {
+      return response
+        .status(400)
+        .json({ error: 'Subtitles are only available for external (embed) rooms.' })
+    }
+
+    const subtitle = request.file('subtitle', {
+      size: MAX_SUBTITLE_SIZE,
+      extnames: SUBTITLE_EXTENSIONS,
+    })
+    if (!subtitle) {
+      return response.status(400).json({ error: 'Please choose an .srt or .vtt file.' })
+    }
+    if (!subtitle.isValid) {
+      return response
+        .status(400)
+        .json({ error: subtitle.errors[0]?.message ?? 'That subtitle file was rejected.' })
+    }
+
+    /**
+     * Replace any previous subtitle on disk before moving the new one in.
+     * A failure to delete is not fatal — the new file uses a slug-based
+     * name and will overwrite the old one regardless.
+     */
+    if (room.subtitleFilename) {
+      try {
+        await unlink(app.makePath('storage/subtitles', basename(room.subtitleFilename)))
+      } catch {
+        /* file already gone — nothing to clean up */
+      }
+    }
+
+    const ext = (subtitle.extname || 'srt').toLowerCase()
+    const filename = `${room.slug}.${ext}`
+    try {
+      await subtitle.move(app.makePath('storage/subtitles'), {
+        name: filename,
+        overwrite: true,
+      })
+    } catch {
+      return response
+        .status(500)
+        .json({ error: 'The subtitle file could not be saved. Please try again.' })
+    }
+
+    room.subtitleFilename = filename
+    await room.save()
+
+    /**
+     * Tell everyone currently in the room there is a new subtitle to fetch.
+     * Each client downloads it from `/subtitles/:filename` and starts
+     * rendering cues against the virtual playhead.
+     */
+    io?.to(room.slug).emit('subtitle_changed', { filename })
+
+    return response.json({ filename })
+  }
+
+  /**
+   * Streams a subtitle file. The file lives under `storage/subtitles/`,
+   * outside the public folder, so this controller endpoint is what makes it
+   * reachable from the room page.
+   */
+  async streamSubtitle({ params, response }: HttpContext) {
+    const filename = basename(String(params.filename ?? ''))
+    if (!filename) {
+      return response.status(404).send('Subtitle not found.')
+    }
+
+    const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+    if (!SUBTITLE_EXTENSIONS.includes(ext)) {
+      return response.status(404).send('Subtitle not found.')
+    }
+
+    /**
+     * `text/vtt` is the canonical type for both formats here — browsers
+     * tolerate it for SRT too, and the client parses the content itself.
+     */
+    response.header('Content-Type', 'text/vtt; charset=utf-8')
+    return response.download(app.makePath('storage/subtitles', filename))
   }
 }

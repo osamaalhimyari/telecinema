@@ -385,12 +385,20 @@
       }
     }
 
+    /**
+     * True while the visitor is actively dragging the seek bar. We skip the
+     * poll loop's writes to `seek.value` and `curTime` while it is true so
+     * the dragged thumb position isn't yanked back to the live playhead
+     * mid-drag.
+     */
+    var draggingSeek = false
+
     function updateExternalUI() {
-      if (document.activeElement !== seek) {
+      if (document.activeElement !== seek && !draggingSeek) {
         seek.value = String(vplay.currentTime)
       }
       seek.max = String(vplay.duration)
-      curTime.textContent = formatTime(vplay.currentTime)
+      if (!draggingSeek) curTime.textContent = formatTime(vplay.currentTime)
       // Right-hand label stays as the "LIVE" badge from the template; we
       // don't overwrite it because we never learn the embed's real length.
       playPause.textContent = vplay.paused ? '▶' : '❚❚'
@@ -472,21 +480,403 @@
       emitControl('seek', vplay.currentTime)
     })
 
+    /**
+     * Seek debouncing for external rooms — a drag must NOT fire one
+     * `virtualSeek` per pixel. `input` only updates the visual scrub
+     * position (cheap — just a label change); `change` fires once when the
+     * thumb is released and is the only event that actually broadcasts the
+     * seek and reloads the iframe. Without this, dragging the bar reloads
+     * the embed dozens of times before the visitor lets go.
+     */
     seek.addEventListener('input', function () {
       if (isSyncing) return
+      draggingSeek = true
+      curTime.textContent = formatTime(parseFloat(seek.value) || 0)
+    })
+
+    seek.addEventListener('change', function () {
+      if (isSyncing) return
+      draggingSeek = false
       virtualSeek(parseFloat(seek.value) || 0)
       emitControl('seek', vplay.currentTime)
+    })
+
+    // `change` does not fire if the slider is blurred without a value
+    // commit — release the drag lock there too so the poll loop resumes.
+    seek.addEventListener('blur', function () {
+      draggingSeek = false
+    })
+
+    /**
+     * "Resync everyone" — asks the server to broadcast a forced realignment
+     * to every client in the room (including this one). Useful for the
+     * inevitable drift between an iframe's actual frame and the shared room
+     * clock during continuous playback. The button is only rendered for
+     * external rooms.
+     */
+    var resyncBtn = document.getElementById('resyncBtn')
+    if (resyncBtn) {
+      resyncBtn.addEventListener('click', function () {
+        // Visual feedback — flips off on the next applyIframeState().
+        resyncBtn.classList.add('is-active')
+        socket.emit('force_resync')
+        setTimeout(function () {
+          resyncBtn.classList.remove('is-active')
+        }, 600)
+      })
+    }
+
+    /**
+     * Inbound `force_resync` — apply the room's master state exactly like a
+     * normal sync, then force the iframe to reload at that time regardless
+     * of how small the drift looks against our local model. The drift is in
+     * the embed (which we cannot see), not in our virtual clock.
+     */
+    socket.on('force_resync', function (state) {
+      iframeApplied.currentTime = Number.NEGATIVE_INFINITY
+      iframeApplied.isPlaying = null
+      applyExternalSync(state)
+    })
+
+    /* ----------------------------------------------------------------------
+       Change-source modal — swap the embed for the next episode / another
+       server. The new URL is broadcast through the socket; everyone reloads.
+       ---------------------------------------------------------------------- */
+
+    var sourceBtn = document.getElementById('sourceBtn')
+    var sourceModal = document.getElementById('sourceModal')
+    var newSourceUrl = document.getElementById('newSourceUrl')
+    var confirmSource = document.getElementById('confirmSource')
+    var cancelSource = document.getElementById('cancelSource')
+    var sourceModalError = document.getElementById('sourceModalError')
+
+    function openSourceModal() {
+      newSourceUrl.value = EXTERNAL_BASE
+      sourceModalError.hidden = true
+      sourceModal.classList.add('is-open')
+      sourceModal.setAttribute('aria-hidden', 'false')
+      setTimeout(function () {
+        newSourceUrl.focus()
+        newSourceUrl.select()
+      }, 30)
+    }
+
+    function closeSourceModal() {
+      sourceModal.classList.remove('is-open')
+      sourceModal.setAttribute('aria-hidden', 'true')
+    }
+
+    if (sourceBtn) {
+      sourceBtn.addEventListener('click', openSourceModal)
+      cancelSource.addEventListener('click', closeSourceModal)
+      sourceModal.addEventListener('click', function (e) {
+        if (e.target === sourceModal) closeSourceModal()
+      })
+
+      confirmSource.addEventListener('click', function () {
+        var raw = String(newSourceUrl.value || '').trim()
+        if (!raw) {
+          sourceModalError.textContent = 'Paste an embed URL first.'
+          sourceModalError.hidden = false
+          return
+        }
+        try {
+          var parsed = new URL(raw)
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new Error('protocol')
+          }
+        } catch (err) {
+          sourceModalError.textContent = 'That does not look like a valid http(s) URL.'
+          sourceModalError.hidden = false
+          return
+        }
+
+        socket.emit('change_source', { url: raw })
+        closeSourceModal()
+      })
+    }
+
+    /**
+     * Inbound `source_changed` — server has accepted a new embed URL. Rebuild
+     * the base, reset the playhead, and reload the iframe from scratch. The
+     * subtitle is cleared server-side too.
+     */
+    socket.on('source_changed', function (payload) {
+      if (!payload || typeof payload.url !== 'string') return
+
+      EXTERNAL_BASE = payload.url
+      iframe.setAttribute('data-base', payload.url)
+
+      vplay.currentTime = Number(payload.currentTime) || 0
+      vplay._lastTickAt = Date.now()
+
+      if (payload.isPlaying) {
+        if (vplay.paused) {
+          vplay.paused = false
+          startTicking()
+        }
+      } else if (!vplay.paused) {
+        vplay.paused = true
+        stopTicking()
+      }
+
+      iframeApplied.currentTime = Number.NEGATIVE_INFINITY
+      iframeApplied.isPlaying = null
+      applyIframeState()
+      updateExternalUI()
+
+      // Source change wipes the subtitle.
+      setSubtitleSource(null)
+    })
+
+    /* ----------------------------------------------------------------------
+       Subtitles — upload an SRT/VTT and render an overlay on top of the
+       iframe, driven by the virtual playhead. The overlay is rendered by
+       us because cross-origin embeds cannot host a `<track>` of ours.
+       ---------------------------------------------------------------------- */
+
+    var subtitleBtn = document.getElementById('subtitleBtn')
+    var subtitleModal = document.getElementById('subtitleModal')
+    var subtitleFile = document.getElementById('subtitleFile')
+    var subtitleOffsetInput = document.getElementById('subtitleOffset')
+    var confirmSubtitle = document.getElementById('confirmSubtitle')
+    var cancelSubtitle = document.getElementById('cancelSubtitle')
+    var subtitleModalError = document.getElementById('subtitleModalError')
+    var subtitleText = document.getElementById('subtitleText')
+
+    /** Parsed cue list, sorted by start time. */
+    var subtitleCues = []
+    /** Per-viewer offset in seconds; persisted to localStorage by room slug. */
+    var subtitleOffset = 0
+    /** Last rendered cue index — caches the binary-search starting point. */
+    var lastCueIndex = -1
+
+    var OFFSET_KEY = 'wp_sub_offset_' + slug
+    try {
+      var savedOffset = parseFloat(localStorage.getItem(OFFSET_KEY) || '0')
+      if (isFinite(savedOffset)) subtitleOffset = savedOffset
+      if (subtitleOffsetInput) subtitleOffsetInput.value = String(subtitleOffset)
+    } catch (e) {
+      /* localStorage unavailable — keep offset at 0 */
+    }
+
+    /**
+     * Parses an SRT or WebVTT string into a sorted `{start, end, text}` cue
+     * list. Tolerant of either separator (`,` for SRT, `.` for VTT) and of
+     * stray cue numbers / VTT headers between cues.
+     */
+    function parseSubtitles(text) {
+      text = String(text || '').replace(/\r\n?/g, '\n').replace(/^﻿/, '')
+
+      var lines = text.split('\n')
+      var tsRe =
+        /^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/
+
+      function toSeconds(h, m, s, frac) {
+        return (
+          (parseInt(h, 10) || 0) * 3600 +
+          parseInt(m, 10) * 60 +
+          parseInt(s, 10) +
+          parseFloat('0.' + (frac || '0'))
+        )
+      }
+
+      var cues = []
+      var i = 0
+      while (i < lines.length) {
+        var m = tsRe.exec(lines[i])
+        if (m) {
+          var start = toSeconds(m[1], m[2], m[3], m[4])
+          var end = toSeconds(m[5], m[6], m[7], m[8])
+          i++
+          var body = []
+          while (i < lines.length && lines[i].trim() !== '') {
+            // Drop simple HTML/VTT styling tags so plain text renders.
+            body.push(lines[i].replace(/<[^>]+>/g, ''))
+            i++
+          }
+          if (body.length > 0 && end > start) {
+            cues.push({ start: start, end: end, text: body.join('\n') })
+          }
+        } else {
+          i++
+        }
+      }
+
+      cues.sort(function (a, b) {
+        return a.start - b.start
+      })
+      return cues
+    }
+
+    /**
+     * Loads a subtitle file by name (the bare filename stored on the room).
+     * Pass `null` to clear the overlay entirely.
+     */
+    function setSubtitleSource(filename) {
+      if (!filename) {
+        subtitleCues = []
+        lastCueIndex = -1
+        subtitleText.textContent = ''
+        return
+      }
+
+      var url = '/subtitles/' + encodeURIComponent(filename) + '?t=' + Date.now()
+      fetch(url, { credentials: 'same-origin' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('http')
+          return res.text()
+        })
+        .then(function (text) {
+          subtitleCues = parseSubtitles(text)
+          lastCueIndex = -1
+        })
+        .catch(function () {
+          subtitleCues = []
+          lastCueIndex = -1
+          subtitleText.textContent = ''
+        })
+    }
+
+    /**
+     * Picks the cue at the given time. Linear scan with a "remember the
+     * last hit" optimization — subtitle files almost always step forward,
+     * so we usually find the next cue within one or two iterations.
+     */
+    function findCue(time) {
+      if (subtitleCues.length === 0) return null
+
+      var n = subtitleCues.length
+      // Try a small window around the last hit before falling back to scan.
+      if (lastCueIndex >= 0 && lastCueIndex < n) {
+        var c = subtitleCues[lastCueIndex]
+        if (time >= c.start && time < c.end) return c
+      }
+
+      for (var i = 0; i < n; i++) {
+        var cue = subtitleCues[i]
+        if (time < cue.start) return null
+        if (time < cue.end) {
+          lastCueIndex = i
+          return cue
+        }
+      }
+      return null
+    }
+
+    function renderSubtitle() {
+      if (subtitleCues.length === 0) {
+        if (subtitleText.textContent !== '') subtitleText.textContent = ''
+        return
+      }
+      var cue = findCue(vplay.currentTime + subtitleOffset)
+      var next = cue ? cue.text : ''
+      if (subtitleText.textContent !== next) subtitleText.textContent = next
+    }
+
+    // A dedicated render loop — the playback tick only runs while playing,
+    // but subtitles need to refresh on offset/seek changes even while paused.
+    setInterval(renderSubtitle, 150)
+
+    /* ---- Modal wiring + upload form ----------------------------------- */
+
+    function openSubtitleModal() {
+      subtitleModalError.hidden = true
+      subtitleFile.value = ''
+      subtitleOffsetInput.value = String(subtitleOffset)
+      subtitleModal.classList.add('is-open')
+      subtitleModal.setAttribute('aria-hidden', 'false')
+    }
+
+    function closeSubtitleModal() {
+      subtitleModal.classList.remove('is-open')
+      subtitleModal.setAttribute('aria-hidden', 'true')
+    }
+
+    if (subtitleBtn) {
+      subtitleBtn.addEventListener('click', openSubtitleModal)
+      cancelSubtitle.addEventListener('click', closeSubtitleModal)
+      subtitleModal.addEventListener('click', function (e) {
+        if (e.target === subtitleModal) closeSubtitleModal()
+      })
+
+      subtitleOffsetInput.addEventListener('input', function () {
+        var v = parseFloat(subtitleOffsetInput.value)
+        if (!isFinite(v)) v = 0
+        subtitleOffset = v
+        try {
+          localStorage.setItem(OFFSET_KEY, String(v))
+        } catch (e) {
+          /* ignore */
+        }
+        // Force a re-evaluation against the new offset on the next tick.
+        lastCueIndex = -1
+      })
+
+      confirmSubtitle.addEventListener('click', function () {
+        var file = subtitleFile.files && subtitleFile.files[0]
+        if (!file) {
+          subtitleModalError.textContent = 'Choose an .srt or .vtt file first.'
+          subtitleModalError.hidden = false
+          return
+        }
+
+        var form = new FormData()
+        form.append('subtitle', file)
+
+        var xhr = new XMLHttpRequest()
+        xhr.open('POST', '/room/' + encodeURIComponent(slug) + '/subtitle')
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
+        xhr.setRequestHeader('Accept', 'application/json')
+        confirmSubtitle.disabled = true
+        confirmSubtitle.textContent = 'Uploading…'
+
+        xhr.addEventListener('load', function () {
+          confirmSubtitle.disabled = false
+          confirmSubtitle.textContent = 'Upload'
+          var body = {}
+          try {
+            body = JSON.parse(xhr.responseText)
+          } catch (e) {}
+
+          if (xhr.status >= 200 && xhr.status < 300 && body.filename) {
+            // The server already broadcast `subtitle_changed`, which our
+            // socket handler picks up — no need to load it here ourselves.
+            closeSubtitleModal()
+          } else {
+            subtitleModalError.textContent =
+              body.error || 'Upload failed (HTTP ' + xhr.status + ').'
+            subtitleModalError.hidden = false
+          }
+        })
+        xhr.addEventListener('error', function () {
+          confirmSubtitle.disabled = false
+          confirmSubtitle.textContent = 'Upload'
+          subtitleModalError.textContent = 'The upload failed — check your connection.'
+          subtitleModalError.hidden = false
+        })
+        xhr.send(form)
+      })
+    }
+
+    /** Broadcast: a new subtitle was uploaded. Each client refetches it. */
+    socket.on('subtitle_changed', function (payload) {
+      var filename = payload && typeof payload.filename === 'string' ? payload.filename : null
+      setSubtitleSource(filename)
     })
 
     /**
      * The template loads the iframe with the raw embed URL so a slow first
      * sync still shows *something*. As soon as a sync arrives, the iframe
-     * is brought in line with the room's master state.
+     * is brought in line with the room's master state. We also kick off a
+     * subtitle load here if the room already has one persisted.
      */
     iframeApplied.isPlaying = true
     iframeApplied.currentTime = 0
     pausedOverlay.classList.remove('is-visible')
     updateExternalUI()
+
+    if (window.ROOM_SUBTITLE) setSubtitleSource(window.ROOM_SUBTITLE)
   }
 
   /* ------------------------------------------------------------------------

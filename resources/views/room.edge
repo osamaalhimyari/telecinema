@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=9" />
+    <link rel="stylesheet" href="/css/app.css?v=13" />
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -51,6 +51,13 @@
                 <div class="overlay-sub">Press play to resume — everyone restarts together.</div>
               </div>
             </div>
+
+            {{-- Subtitle overlay — JS writes the current cue text into the
+                 inner span. Empty by default; rendered in front of the
+                 iframe (and the paused overlay) so it stays readable. --}}
+            <div class="subtitle-overlay" id="subtitleOverlay">
+              <span class="subtitle-text" id="subtitleText"></span>
+            </div>
           @else
             <video
               id="video"
@@ -74,6 +81,29 @@
               <span class="viewer-label">watching</span>
             </span>
 
+            @if(room.roomType === 'external')
+              <button
+                class="ctrl-btn"
+                id="sourceBtn"
+                type="button"
+                aria-label="Change the embed source URL"
+                title="Change source (next episode, different server, …)"
+              >🎞</button>
+              <button
+                class="ctrl-btn"
+                id="subtitleBtn"
+                type="button"
+                aria-label="Upload subtitles"
+                title="Upload subtitles (.srt or .vtt)"
+              >CC</button>
+              <button
+                class="ctrl-btn"
+                id="resyncBtn"
+                type="button"
+                aria-label="Resync everyone to the room time"
+                title="Resync everyone — reloads each iframe at the room time"
+              >↻</button>
+            @end
             <button class="ctrl-btn" id="rotate" type="button" aria-label="Rotate video" title="Rotate video">⟳</button>
             <button class="ctrl-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
           </div>
@@ -178,11 +208,86 @@
       </div>
     </div>
 
+    @if(room.roomType === 'external')
+      {{-- Change-source modal: paste a new embed URL (e.g. next episode)
+           and broadcast it to every viewer. The new source resets the room
+           clock to 0 and clears the previous subtitle. --}}
+      <div class="modal" id="sourceModal" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="sourceModalTitle">
+          <h2 class="modal-title" id="sourceModalTitle">Change source URL</h2>
+          <p class="modal-text">
+            Everyone in the room will reload to this URL and the room clock will reset to 0.
+          </p>
+
+          <div class="field">
+            <label class="field-label" for="newSourceUrl">New embed URL</label>
+            <input
+              class="field-input"
+              id="newSourceUrl"
+              type="url"
+              maxlength="2048"
+              placeholder="https://example.com/embed/..."
+            />
+          </div>
+
+          <p class="form-error" id="sourceModalError" hidden></p>
+
+          <div class="modal-actions">
+            <button class="btn-ghost" id="cancelSource" type="button">Cancel</button>
+            <button class="btn-primary" id="confirmSource" type="button">Change source</button>
+          </div>
+        </div>
+      </div>
+
+      {{-- Subtitle upload modal: SRT/VTT file picker that posts to
+           /room/:slug/subtitle. Success broadcasts to the room. --}}
+      <div class="modal" id="subtitleModal" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="subtitleModalTitle">
+          <h2 class="modal-title" id="subtitleModalTitle">Upload subtitles</h2>
+          <p class="modal-text">
+            Pick an .srt or .vtt file. We render it on top of the embed so it shows for everyone.
+            Timing follows the room clock — if the iframe itself drifts, adjust the offset.
+          </p>
+
+          <div class="field">
+            <label class="field-label" for="subtitleFile">Subtitle file</label>
+            <input
+              class="field-input"
+              id="subtitleFile"
+              type="file"
+              accept=".srt,.vtt,text/vtt,application/x-subrip"
+            />
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="subtitleOffset">
+              Offset <span class="field-hint">— this device only, in seconds</span>
+            </label>
+            <input
+              class="field-input"
+              id="subtitleOffset"
+              type="number"
+              step="0.5"
+              value="0"
+            />
+          </div>
+
+          <p class="form-error" id="subtitleModalError" hidden></p>
+
+          <div class="modal-actions">
+            <button class="btn-ghost" id="cancelSubtitle" type="button">Close</button>
+            <button class="btn-primary" id="confirmSubtitle" type="button">Upload</button>
+          </div>
+        </div>
+      </div>
+    @end
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
       window.ROOM_SLUG = "{{ room.slug }}"
       window.ROOM_TYPE = "{{ room.roomType }}"
+      window.ROOM_SUBTITLE = "{{ room.subtitleFilename || '' }}"
     </script>
-    <script src="/js/room.js?v=9"></script>
+    <script src="/js/room.js?v=13"></script>
   </body>
 </html>

@@ -8,7 +8,7 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 
 export class RoomSchema extends BaseModel {
-  static $columns = ['createdAt', 'externalUrl', 'id', 'isUserCreated', 'name', 'passwordHash', 'roomType', 'slug', 'thumbnailFilename', 'videoFilename'] as const
+  static $columns = ['createdAt', 'externalUrl', 'id', 'isUserCreated', 'name', 'passwordHash', 'roomType', 'slug', 'subtitleFilename', 'thumbnailFilename', 'videoFilename'] as const
   $columns = RoomSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -26,6 +26,8 @@ export class RoomSchema extends BaseModel {
   declare roomType: string
   @column()
   declare slug: string
+  @column()
+  declare subtitleFilename: string | null
   @column()
   declare thumbnailFilename: string
   @column()

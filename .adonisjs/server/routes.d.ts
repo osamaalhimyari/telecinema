@@ -12,6 +12,8 @@ export type ScannedRoutes = {
     'rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'new_account.store': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
@@ -24,6 +26,7 @@ export type ScannedRoutes = {
     'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
   }
@@ -33,6 +36,7 @@ export type ScannedRoutes = {
     'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
   }
@@ -40,6 +44,7 @@ export type ScannedRoutes = {
     'rooms.store': { paramsTuple?: []; params?: {} }
     'rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'new_account.store': { paramsTuple?: []; params?: {} }
     'session.store': { paramsTuple?: []; params?: {} }
     'session.destroy': { paramsTuple?: []; params?: {} }

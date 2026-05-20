@@ -54,6 +54,13 @@ router.post('/room/:slug/delete', [RoomsController, 'destroy']).as('rooms.destro
  */
 router.get('/video/:filename', [VideosController, 'stream']).as('videos.stream')
 
+/**
+ * Subtitle endpoints — upload an .srt/.vtt for an external room, and serve
+ * stored subtitle files to the client overlay.
+ */
+router.post('/room/:slug/subtitle', [RoomsController, 'uploadSubtitle']).as('rooms.subtitle')
+router.get('/subtitles/:filename', [RoomsController, 'streamSubtitle']).as('subtitles.stream')
+
 /*
 |--------------------------------------------------------------------------
 | Authentication routes (scaffolded — left intact)
