@@ -4,7 +4,7 @@ set -e
 #git pull
 node ace build
 cd build
-mkdir -p /home/om179999/my-app/build/tmp
+mkdir -p tmp
 npm ci --omit=dev
 ln -sf ../.env .env
 # Apply any pending database migrations (creates the rooms/users tables on a

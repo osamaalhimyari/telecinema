@@ -327,6 +327,406 @@
     /** Reload threshold, in seconds. Smaller drifts are absorbed silently. */
     var IFRAME_SEEK_TOLERANCE = 2
 
+    /* --------------------------------------------------------------------
+       Provider detection + SDK adapters
+       ----------------------------------------------------------------
+       YouTube and Vimeo expose official JS SDKs that let us drive their
+       embedded players directly — no iframe reloads, no `?t=` prayers,
+       no Resync needed. For those two hosts we attach an adapter built
+       on the provider's SDK; for every other origin the existing generic
+       reload-based flow further down keeps applying. The SDK script is
+       lazy-loaded only when the current room actually uses that provider.
+    ---------------------------------------------------------------------- */
+
+    function detectProvider(rawUrl) {
+      try {
+        var u = new URL(rawUrl, window.location.href)
+        var h = u.hostname.toLowerCase()
+        if (
+          h === 'youtu.be' ||
+          h === 'youtube.com' ||
+          h === 'www.youtube.com' ||
+          h === 'm.youtube.com' ||
+          h === 'music.youtube.com' ||
+          h.endsWith('.youtube-nocookie.com')
+        ) {
+          return 'youtube'
+        }
+        if (h === 'vimeo.com' || h === 'www.vimeo.com' || h === 'player.vimeo.com') {
+          return 'vimeo'
+        }
+      } catch (e) {
+        /* malformed URL — treat as generic */
+      }
+      return 'generic'
+    }
+
+    function extractYouTubeId(rawUrl) {
+      try {
+        var u = new URL(rawUrl, window.location.href)
+        if (u.hostname === 'youtu.be') {
+          return u.pathname.slice(1).split('/')[0] || null
+        }
+        var em = /^\/(?:embed|v|shorts)\/([^/?]+)/.exec(u.pathname)
+        if (em) return em[1]
+        var v = u.searchParams.get('v')
+        if (v) return v
+      } catch (e) {
+        /* malformed URL */
+      }
+      return null
+    }
+
+    function extractVimeoId(rawUrl) {
+      try {
+        var u = new URL(rawUrl, window.location.href)
+        var m = /\/(?:video\/)?(\d+)/.exec(u.pathname)
+        return m ? m[1] : null
+      } catch (e) {
+        /* malformed URL */
+      }
+      return null
+    }
+
+    /** Loads the YouTube IFrame Player API once; resolves when `window.YT` exists. */
+    function loadYouTubeApi() {
+      if (window.YT && window.YT.Player) return Promise.resolve()
+      return new Promise(function (resolve) {
+        var prev = window.onYouTubeIframeAPIReady
+        window.onYouTubeIframeAPIReady = function () {
+          if (typeof prev === 'function') {
+            try {
+              prev()
+            } catch (e) {}
+          }
+          resolve()
+        }
+        if (!document.querySelector('script[data-yt-api]')) {
+          var s = document.createElement('script')
+          s.src = 'https://www.youtube.com/iframe_api'
+          s.async = true
+          s.setAttribute('data-yt-api', '1')
+          document.head.appendChild(s)
+        }
+      })
+    }
+
+    /** Loads the Vimeo Player SDK once; resolves when `window.Vimeo.Player` exists. */
+    function loadVimeoApi() {
+      if (window.Vimeo && window.Vimeo.Player) return Promise.resolve()
+      return new Promise(function (resolve, reject) {
+        if (document.querySelector('script[data-vimeo-api]')) {
+          var tries = 0
+          ;(function check() {
+            if (window.Vimeo && window.Vimeo.Player) return resolve()
+            if (++tries > 50) return reject(new Error('vimeo-timeout'))
+            setTimeout(check, 100)
+          })()
+          return
+        }
+        var s = document.createElement('script')
+        s.src = 'https://player.vimeo.com/api/player.js'
+        s.async = true
+        s.setAttribute('data-vimeo-api', '1')
+        s.onload = function () {
+          resolve()
+        }
+        s.onerror = reject
+        document.head.appendChild(s)
+      })
+    }
+
+    /**
+     * YouTube adapter — drives the YT iframe via the official IFrame Player
+     * API. Reverse-syncs onStateChange events as `play`/`pause` control
+     * messages so a viewer's click inside the YT player propagates to the
+     * rest of the room.
+     */
+    function createYouTubeAdapter(iframeEl, hooks) {
+      var player = null
+      var ready = false
+      /**
+       * Suppresses state-change echoes for a short window after we
+       * programmatically drive the player. Without this every applied
+       * play/pause would re-broadcast itself, looping forever.
+       */
+      var driving = 0
+      function endDrive() {
+        driving = Math.max(0, driving - 1)
+      }
+
+      return {
+        loadSource: function (rawUrl, initialTime, isPlaying) {
+          var videoId = extractYouTubeId(rawUrl)
+          if (!videoId) return Promise.reject(new Error('youtube-id'))
+
+          ready = false
+          var startAt = Math.max(0, Math.floor(initialTime || 0))
+          iframeEl.src =
+            'https://www.youtube.com/embed/' +
+            encodeURIComponent(videoId) +
+            '?enablejsapi=1' +
+            '&origin=' +
+            encodeURIComponent(window.location.origin) +
+            '&autoplay=' +
+            (isPlaying ? 1 : 0) +
+            '&playsinline=1' +
+            '&rel=0' +
+            (startAt > 0 ? '&start=' + startAt : '')
+
+          return loadYouTubeApi().then(function () {
+            return new Promise(function (resolve) {
+              player = new window.YT.Player(iframeEl.id, {
+                events: {
+                  onReady: function () {
+                    ready = true
+                    resolve()
+                  },
+                  onStateChange: function (e) {
+                    if (driving > 0) return
+                    var t = 0
+                    try {
+                      t = player.getCurrentTime()
+                    } catch (err) {
+                      /* player not yet ready */
+                    }
+                    if (e.data === 1 /* playing */) {
+                      if (hooks.onUserPlay) hooks.onUserPlay(t)
+                    } else if (e.data === 2 /* paused */) {
+                      if (hooks.onUserPause) hooks.onUserPause(t)
+                    }
+                  },
+                },
+              })
+            })
+          })
+        },
+
+        apply: function (playing, currentTime, force) {
+          if (!ready || !player) return
+          driving++
+          try {
+            var cur = 0
+            try {
+              cur = player.getCurrentTime()
+            } catch (e) {}
+            if (force || Math.abs(cur - currentTime) > 1.5) {
+              try {
+                player.seekTo(currentTime, true)
+              } catch (e) {}
+            }
+            var state = -1
+            try {
+              state = player.getPlayerState()
+            } catch (e) {}
+            if (playing && state !== 1) {
+              try {
+                player.playVideo()
+              } catch (e) {}
+            } else if (!playing && state !== 2) {
+              try {
+                player.pauseVideo()
+              } catch (e) {}
+            }
+          } finally {
+            setTimeout(endDrive, 1500)
+          }
+        },
+      }
+    }
+
+    /**
+     * Vimeo adapter — drives the Vimeo iframe through the official Player
+     * SDK. The API is promise-based, so the "driving" suppressor uses the
+     * promise lifecycle rather than a fixed timeout.
+     */
+    function createVimeoAdapter(iframeEl, hooks) {
+      var player = null
+      var ready = false
+      var driving = 0
+      function endDrive() {
+        driving = Math.max(0, driving - 1)
+      }
+
+      return {
+        loadSource: function (rawUrl, initialTime, isPlaying) {
+          var videoId = extractVimeoId(rawUrl)
+          if (!videoId) return Promise.reject(new Error('vimeo-id'))
+
+          ready = false
+          var startAt = Math.max(0, Math.floor(initialTime || 0))
+          iframeEl.src =
+            'https://player.vimeo.com/video/' +
+            encodeURIComponent(videoId) +
+            '?api=1' +
+            '&autoplay=' +
+            (isPlaying ? 1 : 0) +
+            '&playsinline=1' +
+            (startAt > 0 ? '#t=' + startAt + 's' : '')
+
+          return loadVimeoApi().then(function () {
+            return new Promise(function (resolve) {
+              player = new window.Vimeo.Player(iframeEl)
+              player.on('play', function () {
+                if (driving > 0) return
+                player
+                  .getCurrentTime()
+                  .then(function (t) {
+                    if (hooks.onUserPlay) hooks.onUserPlay(t)
+                  })
+                  .catch(function () {})
+              })
+              player.on('pause', function () {
+                if (driving > 0) return
+                player
+                  .getCurrentTime()
+                  .then(function (t) {
+                    if (hooks.onUserPause) hooks.onUserPause(t)
+                  })
+                  .catch(function () {})
+              })
+              player.on('seeked', function (data) {
+                if (driving > 0) return
+                var t = (data && data.seconds) || 0
+                if (hooks.onUserSeek) hooks.onUserSeek(t)
+              })
+              player
+                .ready()
+                .then(function () {
+                  ready = true
+                  resolve()
+                })
+                .catch(function () {
+                  resolve()
+                })
+            })
+          })
+        },
+
+        apply: function (playing, currentTime, force) {
+          if (!ready || !player) return
+          driving++
+          var chain = player
+            .getCurrentTime()
+            .then(function (cur) {
+              if (force || Math.abs(cur - currentTime) > 1.5) {
+                return player.setCurrentTime(currentTime)
+              }
+            })
+            .then(function () {
+              return playing ? player.play() : player.pause()
+            })
+            .catch(function () {})
+          chain.then(function () {
+            setTimeout(endDrive, 200)
+          })
+        },
+      }
+    }
+
+    function createSdkAdapter(kind, iframeEl, hooks) {
+      if (kind === 'youtube') return createYouTubeAdapter(iframeEl, hooks)
+      if (kind === 'vimeo') return createVimeoAdapter(iframeEl, hooks)
+      return null
+    }
+
+    /* ---- Per-room provider state -------------------------------------- */
+
+    var providerKind = detectProvider(EXTERNAL_BASE)
+    var sdkAdapter = null
+    var sdkReady = false
+
+    /**
+     * Hooks an SDK adapter calls when it detects the visitor interacted
+     * with the embedded player directly (e.g. clicked the YouTube play
+     * button). Each event is broadcast as the same `control` message a
+     * click on our own buttons would have produced — so the room stays
+     * in sync regardless of which UI was used.
+     */
+    var sdkHooks = {
+      onUserPlay: function (t) {
+        if (isSyncing) return
+        if (vplay.paused) {
+          vplay.paused = false
+          vplay.currentTime = t
+          vplay._lastTickAt = Date.now()
+          startTicking()
+          updateExternalUI()
+          emitControl('play', t)
+        }
+      },
+      onUserPause: function (t) {
+        if (isSyncing) return
+        if (!vplay.paused) {
+          vplay.paused = true
+          vplay.currentTime = t
+          stopTicking()
+          updateExternalUI()
+          emitControl('pause', t)
+        }
+      },
+      onUserSeek: function (t) {
+        if (isSyncing) return
+        vplay.currentTime = t
+        vplay._lastTickAt = Date.now()
+        updateExternalUI()
+        emitControl('seek', t)
+      },
+    }
+
+    /**
+     * (Re)initializes the SDK for the current `EXTERNAL_BASE`. Called both
+     * at first load and from the `source_changed` socket event when the
+     * embed URL changes. Falls back to generic reload control if the SDK
+     * script fails or the URL is missing an id.
+     */
+    function setupProvider() {
+      // We deliberately do not call `destroy()` on the old SDK player —
+      // YouTube's destroy() removes the iframe element, and we want to
+      // keep it. The old player is orphaned but harmless: once the iframe
+      // src changes underneath it, it stops receiving postMessages.
+      sdkAdapter = null
+      sdkReady = false
+
+      providerKind = detectProvider(EXTERNAL_BASE)
+
+      if (providerKind !== 'youtube' && providerKind !== 'vimeo') {
+        // Generic — let applyIframeState handle the about:blank / ?t= flow
+        // for the (potentially new) URL.
+        iframeApplied.currentTime = Number.NEGATIVE_INFINITY
+        iframeApplied.isPlaying = null
+        applyIframeState()
+        return
+      }
+
+      var adapter = createSdkAdapter(providerKind, iframe, sdkHooks)
+      if (!adapter) {
+        providerKind = 'generic'
+        return
+      }
+
+      sdkAdapter = adapter
+      adapter
+        .loadSource(EXTERNAL_BASE, vplay.currentTime, !vplay.paused)
+        .then(function () {
+          if (sdkAdapter !== adapter) return
+          sdkReady = true
+          pausedOverlay.classList.remove('is-visible')
+          // The room state may have moved while the SDK was loading.
+          adapter.apply(!vplay.paused, vplay.currentTime, true)
+        })
+        .catch(function () {
+          // Fall back to generic reload-based control.
+          if (sdkAdapter !== adapter) return
+          sdkAdapter = null
+          sdkReady = false
+          providerKind = 'generic'
+          iframeApplied.currentTime = Number.NEGATIVE_INFINITY
+          iframeApplied.isPlaying = null
+          applyIframeState()
+        })
+    }
+
     function urlWithTime(base, time) {
       var t = Math.max(0, Math.floor(time))
       try {
@@ -340,10 +740,22 @@
     }
 
     /**
-     * Reconciles the iframe with the virtual playhead. Cheap when nothing
-     * has changed; reloads the iframe only on a real transition.
+     * Reconciles the iframe with the virtual playhead. For SDK-backed
+     * providers (YouTube / Vimeo) it delegates to the adapter, which uses
+     * postMessage and never reloads. For generic embeds it falls back to
+     * the reload model: about:blank when paused, `?t=N` when playing.
+     *
+     * @param {boolean=} force - when true, an SDK seek is applied even if
+     *   the current player time is within tolerance. Used for explicit
+     *   user seeks.
      */
-    function applyIframeState() {
+    function applyIframeState(force) {
+      if (sdkAdapter && sdkReady) {
+        pausedOverlay.classList.remove('is-visible')
+        sdkAdapter.apply(!vplay.paused, vplay.currentTime, !!force)
+        return
+      }
+
       if (vplay.paused) {
         if (iframeApplied.isPlaying !== false) {
           iframe.src = 'about:blank'
@@ -460,13 +872,17 @@
     function virtualSeek(t) {
       vplay.currentTime = Math.max(0, t)
       vplay._lastTickAt = Date.now()
-      // A user-initiated seek must reload the iframe even when the drift is
-      // tiny, so the embed actually jumps. Reset the applied marker to
-      // force the next applyIframeState() to write a fresh `?t=`.
-      iframeApplied.currentTime = vplay.paused
-        ? vplay.currentTime
-        : Number.NEGATIVE_INFINITY
-      applyIframeState()
+      if (sdkAdapter && sdkReady) {
+        // SDK: jump via the player API; no reload, no `?t=` URL gymnastics.
+        applyIframeState(true)
+      } else {
+        // Generic: force the next reload even when drift is tiny so the
+        // embed actually jumps.
+        iframeApplied.currentTime = vplay.paused
+          ? vplay.currentTime
+          : Number.NEGATIVE_INFINITY
+        applyIframeState()
+      }
       updateExternalUI()
     }
 
@@ -620,9 +1036,8 @@
         stopTicking()
       }
 
-      iframeApplied.currentTime = Number.NEGATIVE_INFINITY
-      iframeApplied.isPlaying = null
-      applyIframeState()
+      // Re-detect provider, swap the SDK adapter, and reload the iframe.
+      setupProvider()
       updateExternalUI()
 
       // Source change wipes the subtitle.
@@ -869,12 +1284,14 @@
      * The template loads the iframe with the raw embed URL so a slow first
      * sync still shows *something*. As soon as a sync arrives, the iframe
      * is brought in line with the room's master state. We also kick off a
-     * subtitle load here if the room already has one persisted.
+     * subtitle load here if the room already has one persisted, and a
+     * provider setup so YouTube/Vimeo embeds attach their SDK immediately.
      */
     iframeApplied.isPlaying = true
     iframeApplied.currentTime = 0
     pausedOverlay.classList.remove('is-visible')
     updateExternalUI()
+    setupProvider()
 
     if (window.ROOM_SUBTITLE) setSubtitleSource(window.ROOM_SUBTITLE)
   }
