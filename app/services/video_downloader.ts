@@ -228,6 +228,8 @@ async function createRoom(
     slug,
     videoFilename,
     thumbnailFilename: '',
+    roomType: 'download',
+    externalUrl: null,
     isUserCreated: true,
     passwordHash: password ? await hash.make(password) : null,
   })

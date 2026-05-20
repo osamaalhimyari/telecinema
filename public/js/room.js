@@ -11,6 +11,12 @@
 
   var socket = io()
   var slug = window.ROOM_SLUG
+  /**
+   * `external` rooms render an iframe instead of our own `<video>`: there is
+   * no element to control, no syncing to do. The voice + viewer-count code
+   * paths still run; the video-specific blocks are gated on this flag.
+   */
+  var isExternal = window.ROOM_TYPE === 'external'
 
   var video = document.getElementById('video')
   var playPause = document.getElementById('playPause')
@@ -51,16 +57,18 @@
      Hard-disable native controls and lock the volume to 1.0
      ------------------------------------------------------------------------ */
 
-  video.controls = false
-  video.volume = 1.0
-  video.muted = false
+  if (video) {
+    video.controls = false
+    video.volume = 1.0
+    video.muted = false
 
-  video.addEventListener('volumechange', function () {
-    if (video.volume !== 1.0 || video.muted) {
-      video.volume = 1.0
-      video.muted = false
-    }
-  })
+    video.addEventListener('volumechange', function () {
+      if (video.volume !== 1.0 || video.muted) {
+        video.volume = 1.0
+        video.muted = false
+      }
+    })
+  }
 
   /* ------------------------------------------------------------------------
      Helpers
@@ -140,7 +148,7 @@
 
   socket.on('sync', function (state) {
     lastSync = state
-    applySync(state)
+    if (video) applySync(state)
   })
 
   socket.on('viewer_count', function (data) {
@@ -168,101 +176,103 @@
     socket.emit('control', { action: action, currentTime: time })
   }
 
-  playPause.addEventListener('click', function () {
-    if (isSyncing) return
+  if (video) {
+    playPause.addEventListener('click', function () {
+      if (isSyncing) return
 
-    if (video.paused) {
+      if (video.paused) {
+        var playPromise = video.play()
+        if (playPromise && playPromise.catch) playPromise.catch(function () {})
+        emitControl('play', video.currentTime)
+      } else {
+        video.pause()
+        emitControl('pause', video.currentTime)
+      }
+    })
+
+    /** Seek to an absolute time, clamped to [0, duration], then broadcast it. */
+    var seekTo = function (time) {
+      var duration = video.duration || 0
+      var clamped = Math.min(Math.max(0, time), duration || time)
+
+      withSyncGuard(function () {
+        video.currentTime = clamped
+      })
+      emitControl('seek', clamped)
+    }
+
+    back10.addEventListener('click', function () {
+      seekTo((video.currentTime || 0) - 10)
+    })
+
+    fwd10.addEventListener('click', function () {
+      seekTo((video.currentTime || 0) + 10)
+    })
+
+    /**
+     * The seek bar fires "input" only on real user interaction — programmatic
+     * `seek.value` updates from the poll loop below do not trigger it.
+     */
+    seek.addEventListener('input', function () {
+      if (isSyncing) return
+      seekTo(parseFloat(seek.value))
+    })
+
+    /* ----------------------------------------------------------------------
+       UI poll — drive the seek bar from video.currentTime every 250ms.
+       This intentionally avoids the video's own "timeupdate" event and never
+       emits anything.
+       ---------------------------------------------------------------------- */
+
+    setInterval(function () {
+      var duration = video.duration || 0
+      var current = video.currentTime || 0
+
+      // Don't fight the user while they are dragging the slider.
+      if (duration > 0 && document.activeElement !== seek) {
+        seek.value = String(current)
+      }
+
+      curTime.textContent = formatTime(current)
+      durTime.textContent = formatTime(duration)
+    }, 250)
+
+    /* ----------------------------------------------------------------------
+       Video element lifecycle
+       ---------------------------------------------------------------------- */
+
+    video.addEventListener('loadedmetadata', function () {
+      seek.max = String(video.duration || 0)
+      durTime.textContent = formatTime(video.duration)
+    })
+
+    // Keep the play/pause button glyph in sync (UI only — never emits).
+    video.addEventListener('play', function () {
+      playPause.textContent = '❚❚'
+    })
+    video.addEventListener('pause', function () {
+      playPause.textContent = '▶'
+    })
+
+    // The video file is missing or unplayable.
+    video.addEventListener('error', function () {
+      videoError.classList.add('is-visible')
+    })
+
+    /* ----------------------------------------------------------------------
+       Autoplay gate — clicking it counts as a user gesture, after which we
+       re-request a fresh sync so playback resumes exactly in step.
+       ---------------------------------------------------------------------- */
+
+    playGate.addEventListener('click', function () {
+      hideGate()
       var playPromise = video.play()
       if (playPromise && playPromise.catch) playPromise.catch(function () {})
-      emitControl('play', video.currentTime)
-    } else {
-      video.pause()
-      emitControl('pause', video.currentTime)
-    }
-  })
-
-  /** Seek to an absolute time, clamped to [0, duration], then broadcast it. */
-  function seekTo(time) {
-    var duration = video.duration || 0
-    var clamped = Math.min(Math.max(0, time), duration || time)
-
-    withSyncGuard(function () {
-      video.currentTime = clamped
+      // Re-join to pull the current master state (the server will not
+      // double-count this socket).
+      socket.emit('join_room', { roomSlug: slug })
     })
-    emitControl('seek', clamped)
   }
-
-  back10.addEventListener('click', function () {
-    seekTo((video.currentTime || 0) - 10)
-  })
-
-  fwd10.addEventListener('click', function () {
-    seekTo((video.currentTime || 0) + 10)
-  })
-
-  /**
-   * The seek bar fires "input" only on real user interaction — programmatic
-   * `seek.value` updates from the poll loop below do not trigger it.
-   */
-  seek.addEventListener('input', function () {
-    if (isSyncing) return
-    seekTo(parseFloat(seek.value))
-  })
-
-  /* ------------------------------------------------------------------------
-     UI poll — drive the seek bar from video.currentTime every 250ms.
-     This intentionally avoids the video's own "timeupdate" event and never
-     emits anything.
-     ------------------------------------------------------------------------ */
-
-  setInterval(function () {
-    var duration = video.duration || 0
-    var current = video.currentTime || 0
-
-    // Don't fight the user while they are dragging the slider.
-    if (duration > 0 && document.activeElement !== seek) {
-      seek.value = String(current)
-    }
-
-    curTime.textContent = formatTime(current)
-    durTime.textContent = formatTime(duration)
-  }, 250)
-
-  /* ------------------------------------------------------------------------
-     Video element lifecycle
-     ------------------------------------------------------------------------ */
-
-  video.addEventListener('loadedmetadata', function () {
-    seek.max = String(video.duration || 0)
-    durTime.textContent = formatTime(video.duration)
-  })
-
-  // Keep the play/pause button glyph in sync (UI only — never emits).
-  video.addEventListener('play', function () {
-    playPause.textContent = '❚❚'
-  })
-  video.addEventListener('pause', function () {
-    playPause.textContent = '▶'
-  })
-
-  // The video file is missing or unplayable.
-  video.addEventListener('error', function () {
-    videoError.classList.add('is-visible')
-  })
-
-  /* ------------------------------------------------------------------------
-     Autoplay gate — clicking it counts as a user gesture, after which we
-     re-request a fresh sync so playback resumes exactly in step.
-     ------------------------------------------------------------------------ */
-
-  playGate.addEventListener('click', function () {
-    hideGate()
-    var playPromise = video.play()
-    if (playPromise && playPromise.catch) playPromise.catch(function () {})
-    // Re-join to pull the current master state (the server will not
-    // double-count this socket).
-    socket.emit('join_room', { roomSlug: slug })
-  })
 
   /* ------------------------------------------------------------------------
      Rotation — the rotate button toggles the whole player (the video AND
@@ -289,9 +299,13 @@
 
     player.classList.add('is-rotated')
 
-    // Source pixel dimensions give a layout-independent aspect ratio.
-    var vw = video.videoWidth
-    var vh = video.videoHeight
+    /**
+     * External rooms have no `<video>` to read pixel dimensions from, so the
+     * rotor is given the player's own dimensions (swapped). That is enough
+     * for an iframe, whose aspect ratio is controlled by the embedded page.
+     */
+    var vw = video ? video.videoWidth : player.clientWidth
+    var vh = video ? video.videoHeight : player.clientHeight
     if (!vw || !vh) {
       // Metadata not ready yet — turn now, size correctly once it loads.
       playerRotor.style.transform = 'rotate(90deg)'
@@ -339,7 +353,7 @@
   })
 
   // Re-fit a rotated player when metadata arrives or the window resizes.
-  video.addEventListener('loadedmetadata', applyRotation)
+  if (video) video.addEventListener('loadedmetadata', applyRotation)
   window.addEventListener('resize', applyRotation)
 
   /* ------------------------------------------------------------------------
@@ -424,8 +438,11 @@
   }
 
   function hideControls() {
-    // Hide on inactivity regardless of play state; never while talking.
-    if (!isTalking) player.classList.add('is-idle')
+    // Hide on inactivity regardless of play state; never while talking. For
+    // external rooms the iframe captures every pointer event, so once the
+    // bars hid the visitor would have no way to bring them back — and the
+    // mic button must always be reachable. Keep the bars up there.
+    if (!isTalking && !isExternal) player.classList.add('is-idle')
   }
 
   function scheduleControlsHide() {
@@ -489,8 +506,10 @@
     bar.addEventListener('mouseleave', scheduleControlsHide)
   })
 
-  video.addEventListener('pause', scheduleControlsHide)
-  video.addEventListener('play', scheduleControlsHide)
+  if (video) {
+    video.addEventListener('pause', scheduleControlsHide)
+    video.addEventListener('play', scheduleControlsHide)
+  }
 
   // Hide the controls shortly after load even if the viewer never moves.
   scheduleControlsHide()

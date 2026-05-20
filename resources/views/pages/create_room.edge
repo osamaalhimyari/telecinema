@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Create a room — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=8" />
+    <link rel="stylesheet" href="/css/app.css?v=9" />
   </head>
   <body class="page-create">
     @include('partials/flash')
@@ -14,8 +14,8 @@
         <a class="room-back" href="/">‹ Rooms</a>
         <h1 class="create-title">Create a room</h1>
         <p class="create-sub">
-          Give the room a name, paste a video link — or upload a file — and optionally lock it
-          with a password.
+          Give the room a name, choose where its video comes from, and optionally lock it with a
+          password.
         </p>
 
         <form
@@ -41,6 +41,91 @@
           </div>
 
           <div class="field">
+            <label class="field-label">Video source</label>
+            <div class="type-picker" id="typePicker" role="radiogroup" aria-label="Video source">
+              <label class="type-option">
+                <input type="radio" name="roomType" value="external" checked />
+                <span class="type-option-card">
+                  <span class="type-option-icon" aria-hidden="true">⇱</span>
+                  <span class="type-option-title">Stream from outside</span>
+                  <span class="type-option-sub">Embed a player from another site</span>
+                </span>
+              </label>
+              <label class="type-option">
+                <input type="radio" name="roomType" value="download" />
+                <span class="type-option-card">
+                  <span class="type-option-icon" aria-hidden="true">⇣</span>
+                  <span class="type-option-title">Download from link</span>
+                  <span class="type-option-sub">We fetch the file to our storage</span>
+                </span>
+              </label>
+              <label class="type-option">
+                <input type="radio" name="roomType" value="upload" />
+                <span class="type-option-card">
+                  <span class="type-option-icon" aria-hidden="true">⬆</span>
+                  <span class="type-option-title">Upload a file</span>
+                  <span class="type-option-sub">Pick a video from your device</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {{-- Each panel below is revealed by create_room.js based on the
+               selected room type. Only one is visible at a time. --}}
+
+          <div class="field type-panel" data-type-panel="external">
+            <label class="field-label" for="externalUrl">Embed link</label>
+            <input
+              class="field-input"
+              id="externalUrl"
+              name="externalUrl"
+              type="url"
+              maxlength="2048"
+              placeholder="https://example.com/embed/movie-id"
+            />
+            <span class="field-hint">
+              An iframe-friendly URL — your visitors watch through the other site's player. We
+              never download or re-host the video.
+            </span>
+          </div>
+
+          <div class="field type-panel" data-type-panel="download" hidden>
+            <label class="field-label" for="videoUrl">Video link</label>
+            <input
+              class="field-input"
+              id="videoUrl"
+              name="videoUrl"
+              type="url"
+              maxlength="2048"
+              placeholder="https://example.com/movie.mp4"
+            />
+            <span class="field-hint">
+              A direct link to an MP4, WebM, OGG or MOV file. The server downloads it before the
+              room opens.
+            </span>
+          </div>
+
+          <div class="field type-panel" data-type-panel="upload" hidden>
+            <label class="dropzone" id="dropzone" for="video">
+              {{-- `required` is intentionally omitted: a hidden file input
+                   cannot host the browser's validation bubble. The presence
+                   of a video is enforced in create_room.js. --}}
+              <input
+                id="video"
+                name="video"
+                type="file"
+                accept="video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.m4v,.webm,.ogv,.ogg,.mov"
+                hidden
+              />
+              <span class="dropzone-icon" aria-hidden="true">⬆</span>
+              <span class="dropzone-text" id="dropzoneText">
+                Click to choose a video, or drop it here
+              </span>
+              <span class="dropzone-hint">MP4, WebM, OGG or MOV — up to 15&nbsp;GB</span>
+            </label>
+          </div>
+
+          <div class="field">
             <label class="field-label" for="password">
               Password <span class="field-hint">— optional, 4+ characters</span>
             </label>
@@ -61,44 +146,6 @@
             </div>
           </div>
 
-          <div class="field">
-            <label class="field-label" for="videoUrl">Video link</label>
-            <input
-              class="field-input"
-              id="videoUrl"
-              name="videoUrl"
-              type="url"
-              maxlength="2048"
-              placeholder="https://example.com/movie.mp4"
-            />
-            <span class="field-hint">
-              A direct link to an MP4, WebM, OGG or MOV file. The server downloads it before the
-              room opens.
-            </span>
-          </div>
-
-          <div class="or-divider"><span>or upload a file</span></div>
-
-          <div class="field">
-            <label class="dropzone" id="dropzone" for="video">
-              {{-- `required` is intentionally omitted: a hidden file input
-                   cannot host the browser's validation bubble. The presence
-                   of a video — link or file — is enforced in create_room.js. --}}
-              <input
-                id="video"
-                name="video"
-                type="file"
-                accept="video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.m4v,.webm,.ogv,.ogg,.mov"
-                hidden
-              />
-              <span class="dropzone-icon" aria-hidden="true">⬆</span>
-              <span class="dropzone-text" id="dropzoneText">
-                Click to choose a video, or drop it here
-              </span>
-              <span class="dropzone-hint">MP4, WebM, OGG or MOV — up to 15&nbsp;GB</span>
-            </label>
-          </div>
-
           <div class="upload-progress" id="uploadProgress" hidden>
             <div class="upload-progress-bar"><span id="uploadProgressFill"></span></div>
             <span class="upload-progress-label" id="uploadProgressLabel">0%</span>
@@ -111,6 +158,6 @@
       </div>
     </main>
 
-    <script src="/js/create_room.js?v=8"></script>
+    <script src="/js/create_room.js?v=9"></script>
   </body>
 </html>

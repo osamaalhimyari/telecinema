@@ -297,19 +297,67 @@ a {
   background: #000;
 }
 
+/* ---- External embed (iframe) ------------------------------------------- */
+
+.player-embed {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #000;
+}
+
 /* ---- Custom controls bar ------------------------------------------------- */
 
+/**
+ * The bar is two stacked rows: a seek row on top (current time / slider /
+ * duration) and a buttons row underneath. The buttons row is split into
+ * three flex sections so the center group — back 10s, play, mic, fwd 10s —
+ * lands dead-centre regardless of what the side sections hold. External
+ * rooms drop the seek row entirely; the buttons row is still centered, so
+ * the mic button sits in the same place either way.
+ */
 .controls {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px 14px;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0));
   transition: opacity 0.25s ease;
+}
+
+.controls-row {
+  display: flex;
+  align-items: center;
+}
+
+.controls-row--seek {
+  gap: 12px;
+}
+
+.controls-row--buttons {
+  gap: 10px;
+}
+
+.controls-side {
+  flex: 1;
+  min-width: 0;
+}
+
+.controls-side--right {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.controls-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 /* ---- Top-right controls (rotate + fullscreen) --------------------------- */
@@ -869,6 +917,78 @@ a {
   font-family: inherit;
   cursor: pointer;
   padding: 4px 8px;
+}
+
+/* ---- Room-type picker (radio cards) ------------------------------------ */
+
+.type-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.type-option {
+  cursor: pointer;
+  display: block;
+}
+
+/* The radio input itself is invisible but stays focusable for keyboards. */
+.type-option > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.type-option-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 12px 12px 14px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  transition:
+    border-color var(--ease),
+    background var(--ease),
+    transform var(--ease);
+  height: 100%;
+}
+
+.type-option:hover .type-option-card {
+  border-color: var(--accent-dim);
+}
+
+.type-option.is-active .type-option-card {
+  border-color: var(--accent);
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.type-option > input:focus-visible + .type-option-card {
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.5);
+}
+
+.type-option-icon {
+  font-size: 1.1rem;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.type-option-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.type-option-sub {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.3;
+}
+
+@media (max-width: 560px) {
+  .type-picker {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---- File dropzone ------------------------------------------------------- */

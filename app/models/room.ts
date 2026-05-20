@@ -23,6 +23,21 @@ export default class Room extends BaseModel {
   declare thumbnailFilename: string
 
   /**
+   * Source of the room's video. `upload` and `download` both end up as a
+   * file under `storage/videos/`; `external` is an embed URL rendered as an
+   * iframe and never touches our own storage.
+   */
+  @column()
+  declare roomType: 'upload' | 'download' | 'external'
+
+  /**
+   * Embed URL for `external` rooms — the third-party player iframe shown in
+   * place of our own `<video>` element. Null for upload/download rooms.
+   */
+  @column()
+  declare externalUrl: string | null
+
+  /**
    * Scrypt hash of the room password, or null for open rooms. Never
    * serialized so it cannot leak into a rendered page or JSON response.
    */

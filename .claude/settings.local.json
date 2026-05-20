@@ -59,7 +59,10 @@
       "Bash(curl -s http://localhost:3333/)",
       "Bash(git fetch *)",
       "Bash(git ls-tree *)",
-      "Bash(git -C \"c:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" ls-files)"
+      "Bash(git -C \"c:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" ls-files)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" -Recurse -File | Select-Object -First 60 | ForEach-Object { $_.FullName })",
+      "PowerShell(head -30)",
+      "PowerShell(Get-ChildItem \"C:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" | Where-Object { $_.PSIsContainer } | Select-Object Name)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\storage\\videos"

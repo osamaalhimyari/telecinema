@@ -1,15 +1,20 @@
 /* ==========================================================================
    Watch Party — create-room client
    --------------------------------------------------------------------------
-   Drives the "Create room" form. A room's video can be supplied two ways:
+   Drives the "Create room" form. A room's video can be supplied three ways:
 
-     • Upload a file   — sent over XHR so the progress bar tracks bytes sent.
-     • Paste a link    — the server downloads the file itself; the form POST
-                          returns a job id, which is then polled so the same
-                          progress bar tracks the server-side download.
+     • Stream from outside — an embed URL rendered as an iframe. The room is
+                              created instantly, no bytes change hands.
+     • Download from link  — the server fetches the file itself; the form POST
+                              returns a job id, which is then polled so the
+                              progress bar tracks the server-side download.
+     • Upload a file       — sent over XHR so the progress bar tracks bytes
+                              sent.
 
-   Either way the room only appears once the video is fully in place, so the
-   visitor just watches the bar until it redirects them in.
+   The visitor picks one with the type selector at the top of the form, and
+   only the field that matches their choice is visible. On submit we route to
+   the right server response handler (redirect for upload/external, polling
+   for download).
    ========================================================================== */
 
 ;(function () {
@@ -18,6 +23,7 @@
   var form = document.getElementById('createForm')
   var fileInput = document.getElementById('video')
   var videoUrlInput = document.getElementById('videoUrl')
+  var externalUrlInput = document.getElementById('externalUrl')
   var dropzone = document.getElementById('dropzone')
   var dropzoneText = document.getElementById('dropzoneText')
   var submitBtn = document.getElementById('submitBtn')
@@ -28,11 +34,43 @@
   var formError = document.getElementById('formError')
   var passwordInput = document.getElementById('password')
   var passwordToggle = document.getElementById('passwordToggle')
+  var typePicker = document.getElementById('typePicker')
+  var typePanels = document.querySelectorAll('[data-type-panel]')
+  var typeRadios = typePicker.querySelectorAll('input[name="roomType"]')
 
   /** How often the link-download job is polled for progress, in ms. */
   var POLL_INTERVAL = 800
   /** Consecutive failed polls tolerated before the download is given up. */
   var MAX_POLL_ERRORS = 6
+
+  /* ------------------------------------------------------------------------
+     Type picker — reveal the field that matches the chosen source
+     ------------------------------------------------------------------------ */
+
+  function currentType() {
+    var checked = typePicker.querySelector('input[name="roomType"]:checked')
+    return checked ? checked.value : 'external'
+  }
+
+  function applyType() {
+    var type = currentType()
+
+    // Toggle the visible panel.
+    typePanels.forEach(function (panel) {
+      panel.hidden = panel.getAttribute('data-type-panel') !== type
+    })
+
+    // Highlight the active card.
+    typeRadios.forEach(function (radio) {
+      radio.parentElement.classList.toggle('is-active', radio.checked)
+    })
+  }
+
+  typeRadios.forEach(function (radio) {
+    radio.addEventListener('change', applyType)
+  })
+
+  applyType()
 
   /* ------------------------------------------------------------------------
      Password show / hide
@@ -70,22 +108,8 @@
     dropzoneText.textContent = file.name + ' — ' + formatSize(file.size)
   }
 
-  /**
-   * A room takes its video from exactly one source. Choosing a file clears a
-   * pasted link, and vice versa, so the visitor is never left guessing which
-   * one will be used (the server prefers the file if both somehow arrive).
-   */
   fileInput.addEventListener('change', function () {
-    var file = fileInput.files[0]
-    showFile(file)
-    if (file) videoUrlInput.value = ''
-  })
-
-  videoUrlInput.addEventListener('input', function () {
-    if (videoUrlInput.value.trim() && fileInput.files && fileInput.files.length) {
-      fileInput.value = ''
-      showFile(null)
-    }
+    showFile(fileInput.files[0])
   })
 
   ;['dragenter', 'dragover'].forEach(function (evt) {
@@ -105,7 +129,6 @@
     if (files && files.length) {
       fileInput.files = files
       showFile(files[0])
-      videoUrlInput.value = ''
     }
   })
 
@@ -129,7 +152,6 @@
       progressFill.style.width = percent + '%'
       progressLabel.textContent = percent + '%'
     } else {
-      // Clear the inline width so the CSS animation owns the bar.
       progressBar.classList.add('is-indeterminate')
       progressFill.style.width = ''
       progressLabel.textContent = bytesDone ? formatSize(bytesDone) : '…'
@@ -180,7 +202,6 @@
           window.setTimeout(tick, POLL_INTERVAL)
         })
         .catch(function () {
-          // A blip is tolerated; a sustained outage ends the download.
           errorCount++
           if (errorCount >= MAX_POLL_ERRORS) {
             reset('Lost contact with the server while downloading.')
@@ -201,12 +222,26 @@
     e.preventDefault()
     formError.hidden = true
 
-    var hasFile = fileInput.files && fileInput.files.length
-    var hasUrl = videoUrlInput.value.trim().length > 0
+    var type = currentType()
 
-    if (!hasFile && !hasUrl) {
-      showError('Please paste a video link or choose a video file to upload.')
-      return
+    // Per-type presence check — the controller validates again, but failing
+    // here means the visitor never sees a server round-trip for an obvious
+    // typo.
+    if (type === 'external') {
+      if (!externalUrlInput.value.trim()) {
+        showError('Please paste the embed link for the external stream.')
+        return
+      }
+    } else if (type === 'download') {
+      if (!videoUrlInput.value.trim()) {
+        showError('Please paste a link to the video file.')
+        return
+      }
+    } else if (type === 'upload') {
+      if (!fileInput.files || !fileInput.files.length) {
+        showError('Please choose a video file to upload.')
+        return
+      }
     }
 
     var xhr = new XMLHttpRequest()
@@ -215,14 +250,22 @@
     xhr.setRequestHeader('Accept', 'application/json')
 
     submitBtn.disabled = true
-    submitBtn.textContent = hasFile ? 'Uploading…' : 'Starting…'
-    progress.hidden = false
-    renderProgress(hasFile ? 0 : null, 0)
+    if (type === 'upload') {
+      submitBtn.textContent = 'Uploading…'
+      progress.hidden = false
+      renderProgress(0)
+    } else if (type === 'download') {
+      submitBtn.textContent = 'Starting…'
+      progress.hidden = false
+      renderProgress(null, 0)
+    } else {
+      submitBtn.textContent = 'Creating…'
+      // External rooms appear instantly; no progress bar needed.
+    }
 
-    // Meaningful while a file uploads; for a link the body is tiny, so this
-    // simply jumps to 100% before the poller takes the bar over.
+    // Meaningful only when an actual file is travelling over the wire.
     xhr.upload.addEventListener('progress', function (evt) {
-      if (!evt.lengthComputable || !hasFile) return
+      if (!evt.lengthComputable || type !== 'upload') return
       var pct = Math.round((evt.loaded / evt.total) * 100)
       renderProgress(pct)
       if (pct >= 100) progressLabel.textContent = 'Processing…'
@@ -237,20 +280,18 @@
       }
 
       if (xhr.status >= 200 && xhr.status < 300) {
-        // Upload flow — the room already exists, go straight to it.
+        // Upload + external — the room already exists, go straight to it.
         if (body.redirectTo) {
           window.location.href = body.redirectTo
           return
         }
-        // Link flow — the room appears only once the download completes.
+        // Download flow — the room appears only once the download completes.
         if (body.jobId) {
           pollJob(body.jobId)
           return
         }
       }
 
-      // Surface the most specific message the server gave us; otherwise
-      // explain the failure from the HTTP status so it is never a mystery.
       var message =
         body.error ||
         body.message ||

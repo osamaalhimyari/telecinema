@@ -98,7 +98,8 @@ export default class RoomsController {
    * the request is an AJAX request and as a flash + redirect otherwise.
    */
   async store({ request, response, session }: HttpContext) {
-    const { name, password, videoUrl } = await request.validateUsing(createRoomValidator)
+    const { name, password, roomType, videoUrl, externalUrl } =
+      await request.validateUsing(createRoomValidator)
     const wantsJson = request.ajax()
 
     /** Reports a failure through whichever channel the client expects. */
@@ -108,14 +109,63 @@ export default class RoomsController {
       return response.redirect().back()
     }
 
-    const video = request.file('video', { size: MAX_VIDEO_SIZE, extnames: VIDEO_EXTENSIONS })
+    /**
+     * External flow — the room is just a label in front of someone else's
+     * embed. Nothing to download, nothing to store; the room is ready the
+     * instant the row exists.
+     */
+    if (roomType === 'external') {
+      if (!externalUrl) {
+        return fail('Please paste the embed link for the external stream.')
+      }
+
+      let parsed: URL
+      try {
+        parsed = new URL(externalUrl)
+      } catch {
+        return fail('That does not look like a valid embed link.')
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return fail('Embed links must use http or https.')
+      }
+
+      const base = slugify(name) || 'room'
+      let slug = base
+      while (await Room.findBy('slug', slug)) {
+        slug = `${base}-${Math.random().toString(36).slice(2, 6)}`
+      }
+
+      const room = await Room.create({
+        name,
+        slug,
+        videoFilename: '',
+        thumbnailFilename: '',
+        roomType: 'external',
+        externalUrl,
+        isUserCreated: true,
+        passwordHash: password ? await hash.make(password) : null,
+      })
+
+      if (room.hasPassword) {
+        session.put(this.unlockKey(room.id), true)
+      }
+
+      if (wantsJson) {
+        return response.json({ redirectTo: `/room/${room.slug}` })
+      }
+
+      session.flash('success', `Room "${room.name}" is ready.`)
+      return response.redirect(`/room/${room.slug}`)
+    }
 
     /**
-     * Link flow — only when no file was chosen, so an upload always wins if
-     * the visitor somehow supplied both. The room is not created here; the
-     * download job creates it once the video has finished downloading.
+     * Download flow — the room is not created here; the background job
+     * creates it once the video has finished downloading.
      */
-    if (!video && videoUrl) {
+    if (roomType === 'download') {
+      if (!videoUrl) {
+        return fail('Please paste a link to the video file.')
+      }
       let jobId: string
       try {
         jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl })
@@ -129,8 +179,13 @@ export default class RoomsController {
       return fail('Creating a room from a link requires JavaScript to be enabled.')
     }
 
+    /**
+     * Upload flow — the visitor supplied a file directly.
+     */
+    const video = request.file('video', { size: MAX_VIDEO_SIZE, extnames: VIDEO_EXTENSIONS })
+
     if (!video) {
-      return fail('Please paste a video link or choose a video file to upload.')
+      return fail('Please choose a video file to upload.')
     }
     if (!video.isValid) {
       return fail(video.errors[0]?.message ?? 'The uploaded file is not a supported video.')
@@ -165,6 +220,8 @@ export default class RoomsController {
       slug,
       videoFilename,
       thumbnailFilename: '',
+      roomType: 'upload',
+      externalUrl: null,
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
     })
@@ -272,12 +329,15 @@ export default class RoomsController {
 
     /**
      * Remove the video file. A missing file is not an error: the goal is
-     * simply that it no longer exists afterwards.
+     * simply that it no longer exists afterwards. External rooms own no
+     * file at all, so the unlink is skipped for them.
      */
-    try {
-      await unlink(app.makePath('storage/videos', basename(room.videoFilename)))
-    } catch {
-      /* file already gone — nothing to clean up */
+    if (room.videoFilename) {
+      try {
+        await unlink(app.makePath('storage/videos', basename(room.videoFilename)))
+      } catch {
+        /* file already gone — nothing to clean up */
+      }
     }
 
     dropRoom(room.slug)
