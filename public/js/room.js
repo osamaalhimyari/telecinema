@@ -149,6 +149,7 @@
   socket.on('sync', function (state) {
     lastSync = state
     if (video) applySync(state)
+    else if (isExternal) applyExternalSync(state)
   })
 
   socket.on('viewer_count', function (data) {
@@ -272,6 +273,220 @@
       // double-count this socket).
       socket.emit('join_room', { roomSlug: slug })
     })
+  }
+
+  /* ------------------------------------------------------------------------
+     External-room sync — same control protocol as video rooms, driven by a
+     virtual playhead.
+     --------------------------------------------------------------------
+     We cannot reach into a cross-origin iframe to play / pause / seek its
+     embedded player, so the room cannot share *the iframe's* timeline. What
+     it CAN share is its own: a logical playhead that everyone agrees on,
+     ticked locally and corrected from the same `sync` events upload rooms
+     already use. The iframe is then driven from that playhead with the only
+     two levers cross-origin embeds expose to us:
+
+       • Play / seek → reload the iframe at `?t=N`, the de-facto standard
+         query parameter most embed sites read on load.
+       • Pause       → swap the iframe to `about:blank`, which truly stops
+         it (no half-stuck audio).
+
+     To keep us from thrashing the iframe on every micro-update, an applied
+     `(isPlaying, currentTime)` pair is remembered and the iframe is only
+     reloaded when one of them actually changes by something a viewer would
+     notice (a different play state, or more than two seconds of drift).
+     -------------------------------------------------------------------- */
+
+  /** Forward declaration — assigned in the `if (isExternal)` block below. */
+  var applyExternalSync = function () {}
+
+  if (isExternal) {
+    var iframe = document.getElementById('externalEmbed')
+    var pausedOverlay = document.getElementById('externalPausedOverlay')
+
+    /** Cleaned embed URL (no stale `t=`), used as the base for every reload. */
+    var EXTERNAL_BASE = iframe.getAttribute('data-base') || iframe.src
+    /** Unknown — we cannot read it from the iframe. Two hours covers a film. */
+    var EXTERNAL_DURATION_FALLBACK = 7200
+
+    /**
+     * Virtual playhead. Mirrors the shape of an `<video>` (currentTime /
+     * paused / duration) so the rest of the file can reason about it the
+     * same way.
+     */
+    var vplay = {
+      currentTime: 0,
+      paused: true,
+      duration: EXTERNAL_DURATION_FALLBACK,
+      _tickHandle: null,
+      _lastTickAt: 0,
+    }
+
+    /** Last `(isPlaying, currentTime)` we wrote to the iframe — see preamble. */
+    var iframeApplied = { isPlaying: null, currentTime: 0 }
+    /** Reload threshold, in seconds. Smaller drifts are absorbed silently. */
+    var IFRAME_SEEK_TOLERANCE = 2
+
+    function urlWithTime(base, time) {
+      var t = Math.max(0, Math.floor(time))
+      try {
+        var u = new URL(base, window.location.href)
+        u.searchParams.set('t', String(t))
+        return u.toString()
+      } catch (err) {
+        var sep = base.indexOf('?') >= 0 ? '&' : '?'
+        return base + sep + 't=' + t
+      }
+    }
+
+    /**
+     * Reconciles the iframe with the virtual playhead. Cheap when nothing
+     * has changed; reloads the iframe only on a real transition.
+     */
+    function applyIframeState() {
+      if (vplay.paused) {
+        if (iframeApplied.isPlaying !== false) {
+          iframe.src = 'about:blank'
+          iframeApplied.isPlaying = false
+          iframeApplied.currentTime = vplay.currentTime
+        }
+        pausedOverlay.classList.add('is-visible')
+        return
+      }
+
+      pausedOverlay.classList.remove('is-visible')
+
+      var drift = Math.abs(iframeApplied.currentTime - vplay.currentTime)
+      if (iframeApplied.isPlaying !== true || drift > IFRAME_SEEK_TOLERANCE) {
+        iframe.src = urlWithTime(EXTERNAL_BASE, vplay.currentTime)
+        iframeApplied.isPlaying = true
+        iframeApplied.currentTime = vplay.currentTime
+      }
+    }
+
+    function startTicking() {
+      stopTicking()
+      vplay._lastTickAt = Date.now()
+      vplay._tickHandle = setInterval(function () {
+        var now = Date.now()
+        vplay.currentTime += (now - vplay._lastTickAt) / 1000
+        vplay._lastTickAt = now
+        // The iframeApplied.currentTime tracks ticking too, so a tiny drift
+        // never triggers a reload — only an explicit seek does.
+        iframeApplied.currentTime = vplay.currentTime
+        updateExternalUI()
+      }, 250)
+    }
+
+    function stopTicking() {
+      if (vplay._tickHandle) {
+        clearInterval(vplay._tickHandle)
+        vplay._tickHandle = null
+      }
+    }
+
+    function updateExternalUI() {
+      if (document.activeElement !== seek) {
+        seek.value = String(vplay.currentTime)
+      }
+      seek.max = String(vplay.duration)
+      curTime.textContent = formatTime(vplay.currentTime)
+      // Right-hand label stays as the "LIVE" badge from the template; we
+      // don't overwrite it because we never learn the embed's real length.
+      playPause.textContent = vplay.paused ? '▶' : '❚❚'
+    }
+
+    /**
+     * Inbound `sync` handler — drop the virtual playhead onto the master
+     * state. Extrapolates a playing room's currentTime by the network hop,
+     * exactly like the video flow does.
+     */
+    applyExternalSync = function (state) {
+      isSyncing = true
+
+      var target = Number(state.currentTime) || 0
+      if (state.isPlaying && state.serverTime) {
+        target += (Date.now() - state.serverTime) / 1000
+      }
+
+      vplay.currentTime = Math.max(0, target)
+      vplay._lastTickAt = Date.now()
+
+      if (state.isPlaying && vplay.paused) {
+        vplay.paused = false
+        startTicking()
+      } else if (!state.isPlaying && !vplay.paused) {
+        vplay.paused = true
+        stopTicking()
+      }
+
+      applyIframeState()
+      updateExternalUI()
+
+      setTimeout(function () {
+        isSyncing = false
+      }, 120)
+    }
+
+    /* ---- Local control actions — same socket protocol as video rooms --- */
+
+    playPause.addEventListener('click', function () {
+      if (isSyncing) return
+
+      if (vplay.paused) {
+        vplay.paused = false
+        vplay._lastTickAt = Date.now()
+        startTicking()
+        applyIframeState()
+        updateExternalUI()
+        emitControl('play', vplay.currentTime)
+      } else {
+        vplay.paused = true
+        stopTicking()
+        applyIframeState()
+        updateExternalUI()
+        emitControl('pause', vplay.currentTime)
+      }
+    })
+
+    function virtualSeek(t) {
+      vplay.currentTime = Math.max(0, t)
+      vplay._lastTickAt = Date.now()
+      // A user-initiated seek must reload the iframe even when the drift is
+      // tiny, so the embed actually jumps. Reset the applied marker to
+      // force the next applyIframeState() to write a fresh `?t=`.
+      iframeApplied.currentTime = vplay.paused
+        ? vplay.currentTime
+        : Number.NEGATIVE_INFINITY
+      applyIframeState()
+      updateExternalUI()
+    }
+
+    back10.addEventListener('click', function () {
+      virtualSeek(vplay.currentTime - 10)
+      emitControl('seek', vplay.currentTime)
+    })
+
+    fwd10.addEventListener('click', function () {
+      virtualSeek(vplay.currentTime + 10)
+      emitControl('seek', vplay.currentTime)
+    })
+
+    seek.addEventListener('input', function () {
+      if (isSyncing) return
+      virtualSeek(parseFloat(seek.value) || 0)
+      emitControl('seek', vplay.currentTime)
+    })
+
+    /**
+     * The template loads the iframe with the raw embed URL so a slow first
+     * sync still shows *something*. As soon as a sync arrives, the iframe
+     * is brought in line with the room's master state.
+     */
+    iframeApplied.isPlaying = true
+    iframeApplied.currentTime = 0
+    pausedOverlay.classList.remove('is-visible')
+    updateExternalUI()
   }
 
   /* ------------------------------------------------------------------------
@@ -439,9 +654,9 @@
 
   function hideControls() {
     // Hide on inactivity regardless of play state; never while talking. For
-    // external rooms the iframe captures every pointer event, so once the
-    // bars hid the visitor would have no way to bring them back — and the
-    // mic button must always be reachable. Keep the bars up there.
+    // external rooms the iframe swallows every `mousemove` over its
+    // surface, so a hidden bar could not be brought back without a tap on
+    // the (invisible) bar zone itself. Keep the bar up there.
     if (!isTalking && !isExternal) player.classList.add('is-idle')
   }
 

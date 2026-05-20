@@ -314,8 +314,10 @@ a {
  * duration) and a buttons row underneath. The buttons row is split into
  * three flex sections so the center group — back 10s, play, mic, fwd 10s —
  * lands dead-centre regardless of what the side sections hold. External
- * rooms drop the seek row entirely; the buttons row is still centered, so
- * the mic button sits in the same place either way.
+ * rooms reuse the exact same shape; their "duration" label shows LIVE.
+ *
+ * `z-index: 4` puts the bar above the external-paused overlay (z-index 3)
+ * so the visitor can press play to resume even when the room is paused.
  */
 .controls {
   position: absolute;
@@ -327,7 +329,18 @@ a {
   gap: 8px;
   padding: 14px 18px 14px;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0));
+  z-index: 4;
   transition: opacity 0.25s ease;
+}
+
+/**
+ * The external-room paused overlay covers the (about:blank) iframe but
+ * stays below the top + bottom control bars, so the play button is always
+ * reachable. The default `.player-overlay` rule positions it absolutely
+ * with `inset: 0`, which means it fills the rotor.
+ */
+.external-paused {
+  z-index: 3;
 }
 
 .controls-row {
@@ -920,6 +933,16 @@ a {
 }
 
 /* ---- Room-type picker (radio cards) ------------------------------------ */
+
+/**
+ * `.field` sets `display: flex`, which beats the `[hidden]` attribute's
+ * user-agent `display: none` (no `!important`). Without this rule, the JS
+ * that hides the unrelated source panels has no visual effect.
+ */
+.field[hidden],
+.type-panel[hidden] {
+  display: none !important;
+}
 
 .type-picker {
   display: grid;

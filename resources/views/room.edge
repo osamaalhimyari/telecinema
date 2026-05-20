@@ -28,15 +28,29 @@
           @if(room.roomType === 'external')
             {{-- Embed the third-party player as-is. Sandbox is intentionally
                  not applied — most embed pages need scripts and same-origin
-                 cookies to play. --}}
+                 cookies to play. The `data-base` attribute holds the clean
+                 URL so room.js can rebuild the src with a `?t=N` parameter
+                 whenever the room playhead jumps. --}}
             <iframe
               id="externalEmbed"
               class="player-embed"
               src="{{ room.externalUrl }}"
+              data-base="{{ room.externalUrl }}"
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
               allowfullscreen
               referrerpolicy="no-referrer-when-downgrade"
             ></iframe>
+
+            {{-- Paused overlay sits INSIDE the rotor, with a z-index above
+                 the iframe but below the controls — so the visitor can still
+                 press play to resume the room. --}}
+            <div class="player-overlay external-paused" id="externalPausedOverlay">
+              <div class="overlay-card">
+                <div class="overlay-icon">⏸</div>
+                <div class="overlay-title">Paused for the room</div>
+                <div class="overlay-sub">Press play to resume — everyone restarts together.</div>
+              </div>
+            </div>
           @else
             <video
               id="video"
@@ -65,31 +79,30 @@
           </div>
 
           <div class="controls" id="controls">
-            @if(room.roomType !== 'external')
-              {{-- Seek row sits above the buttons — same shape YouTube uses. --}}
-              <div class="controls-row controls-row--seek">
-                <span class="time-label" id="curTime">0:00</span>
-                <input
-                  class="seek-bar"
-                  id="seek"
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value="0"
-                  aria-label="Seek"
-                />
-                <span class="time-label" id="durTime">0:00</span>
-              </div>
-            @end
+            {{-- Seek row sits above the buttons — same shape YouTube uses.
+                 External rooms get the same synced timeline; we just don't
+                 know the duration up front, so the right-hand label shows
+                 the room's "live" elapsed time instead. --}}
+            <div class="controls-row controls-row--seek">
+              <span class="time-label" id="curTime">0:00</span>
+              <input
+                class="seek-bar"
+                id="seek"
+                type="range"
+                min="0"
+                max="100"
+                step="0.1"
+                value="0"
+                aria-label="Seek"
+              />
+              <span class="time-label" id="durTime">{{ room.roomType === 'external' ? 'LIVE' : '0:00' }}</span>
+            </div>
 
             <div class="controls-row controls-row--buttons">
               <div class="controls-side controls-side--left"></div>
               <div class="controls-center">
-                @if(room.roomType !== 'external')
-                  <button class="ctrl-btn" id="back10" type="button" aria-label="Back 10 seconds">« 10s</button>
-                  <button class="ctrl-btn" id="playPause" type="button" aria-label="Play or pause">▶</button>
-                @end
+                <button class="ctrl-btn" id="back10" type="button" aria-label="Back 10 seconds">« 10s</button>
+                <button class="ctrl-btn" id="playPause" type="button" aria-label="Play or pause">▶</button>
                 <button
                   class="ctrl-btn mic-btn"
                   id="micBtn"
@@ -97,9 +110,7 @@
                   aria-label="Hold to talk"
                   title="Hold to talk"
                 >🎙</button>
-                @if(room.roomType !== 'external')
-                  <button class="ctrl-btn" id="fwd10" type="button" aria-label="Forward 10 seconds">10s »</button>
-                @end
+                <button class="ctrl-btn" id="fwd10" type="button" aria-label="Forward 10 seconds">10s »</button>
               </div>
               <div class="controls-side controls-side--right"></div>
             </div>
