@@ -1713,12 +1713,37 @@
      ------------------------------------------------------------------------ */
 
   var reactionTray = document.getElementById('reactionTray')
+  var reactionToggle = document.getElementById('reactionToggle')
   if (reactionTray) {
     reactionTray.addEventListener('click', function (e) {
       var btn = e.target.closest('.reaction-btn')
       if (!btn) return
       var emoji = btn.getAttribute('data-reaction')
-      if (emoji) socket.emit('reaction', { emoji: emoji })
+      if (!emoji) return
+      socket.emit('reaction', { emoji: emoji })
+
+      // Show own reaction locally — small, floats up from the tray
+      var selfEl = document.createElement('span')
+      selfEl.className = 'reaction-emoji reaction-emoji--self'
+      selfEl.textContent = emoji
+      player.appendChild(selfEl)
+      setTimeout(function () { selfEl.remove() }, 1600)
+    })
+  }
+
+  if (reactionToggle && reactionTray) {
+    reactionToggle.addEventListener('click', function (e) {
+      e.stopPropagation()
+      reactionTray.classList.toggle('is-open')
+    })
+    document.addEventListener('click', function (e) {
+      if (
+        reactionTray.classList.contains('is-open') &&
+        !reactionToggle.contains(e.target) &&
+        !reactionTray.contains(e.target)
+      ) {
+        reactionTray.classList.remove('is-open')
+      }
     })
   }
 
@@ -1726,12 +1751,27 @@
     var emoji = payload && typeof payload.emoji === 'string' ? payload.emoji : null
     if (!emoji) return
 
+    var wrapper = document.createElement('span')
+    wrapper.className = 'reaction-emoji-wrapper'
+    wrapper.style.left = (10 + Math.random() * 60) + '%'
+
     var el = document.createElement('span')
     el.className = 'reaction-emoji'
     el.textContent = emoji
-    el.style.left = (10 + Math.random() * 60) + '%'
-    player.appendChild(el)
-    setTimeout(function () { el.remove() }, 2200)
+    wrapper.appendChild(el)
+
+    var name = payload && typeof payload.name === 'string' ? payload.name : ''
+    if (name) {
+      var avatar = document.createElement('span')
+      avatar.className = 'reaction-avatar'
+      avatar.textContent = name.charAt(0).toUpperCase()
+      avatar.style.background = avatarColor(name)
+      avatar.title = name
+      wrapper.appendChild(avatar)
+    }
+
+    player.appendChild(wrapper)
+    setTimeout(function () { wrapper.remove() }, 2200)
   })
 
   /* ------------------------------------------------------------------------
@@ -2101,12 +2141,44 @@
 
     var micStream = null
     var recorder = null
+    var micLoadingEl = null
+
+    function showMicLoading() {
+      if (micLoadingEl) return
+      micLoadingEl = document.createElement('div')
+      micLoadingEl.className = 'mic-loading'
+      micLoadingEl.innerHTML =
+        '<svg class="mic-loading-ring" viewBox="0 0 40 40"><circle class="mic-loading-track" cx="20" cy="20" r="17" fill="none" stroke-width="3"/><circle class="mic-loading-fill" cx="20" cy="20" r="17" fill="none" stroke-width="3" stroke-dasharray="106.8" stroke-dashoffset="106.8"/></svg><span class="mic-loading-count">0</span>'
+      micBtn.appendChild(micLoadingEl)
+      var count = 0
+      var interval = setInterval(function () {
+        count++
+        var label = micLoadingEl && micLoadingEl.querySelector('.mic-loading-count')
+        if (label) label.textContent = count
+        var fill = micLoadingEl && micLoadingEl.querySelector('.mic-loading-fill')
+        if (fill) {
+          var dash = Math.max(0, 106.8 - (count / 60) * 106.8)
+          fill.style.strokeDashoffset = String(dash)
+        }
+        if (count >= 60) clearInterval(interval)
+      }, 100)
+      micLoadingEl._interval = interval
+    }
+
+    function hideMicLoading() {
+      if (micLoadingEl) {
+        clearInterval(micLoadingEl._interval)
+        micLoadingEl.remove()
+        micLoadingEl = null
+      }
+    }
 
     function startTalking(e) {
       if (isTalking) return
       isTalking = true
       micBtn.classList.add('is-talking')
       showControls()
+      showMicLoading()
       if (e && e.pointerId != null && micBtn.setPointerCapture) {
         try {
           micBtn.setPointerCapture(e.pointerId)
@@ -2128,6 +2200,7 @@
 
           micStream = stream
           recorder = new MediaRecorder(stream, { mimeType: recordMime })
+          hideMicLoading()
 
           recorder.ondataavailable = function (ev) {
             if (ev.data && ev.data.size > 0) socket.emit('voice_chunk', ev.data)
@@ -2147,6 +2220,7 @@
         })
         .catch(function () {
           // No microphone or permission denied — reset the button.
+          hideMicLoading()
           isTalking = false
           micBtn.classList.remove('is-talking')
           micBtn.title = 'Microphone unavailable — check browser permissions'
@@ -2158,6 +2232,7 @@
       if (!isTalking) return
       isTalking = false
       micBtn.classList.remove('is-talking')
+      hideMicLoading()
       scheduleControlsHide()
 
       if (recorder && recorder.state !== 'inactive') {

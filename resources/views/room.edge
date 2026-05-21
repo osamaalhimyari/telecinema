@@ -158,7 +158,10 @@
           </div>
         </div>
 
-        {{-- Reaction tray — click to broadcast an emoji to the room --}}
+        {{-- Reaction toggle button (top-left corner) — opens/closes the floating emoji tray --}}
+        <button class="reaction-toggle" id="reactionToggle" type="button" title="Reactions" aria-label="Toggle reaction tray">😊</button>
+
+        {{-- Floating reaction tray — appears when toggle is pressed, stays open until dismissed --}}
         <div class="reaction-tray" id="reactionTray">
           @each(emoji in room.reactionsList)
             <button class="reaction-btn" data-reaction="{{ emoji }}" type="button">{{ emoji }}</button>

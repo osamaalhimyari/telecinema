@@ -359,7 +359,8 @@ function registerHandlers(server: Server, socket: Socket) {
     if (typeof slug !== 'string' || slug.length === 0) return
     const emoji = typeof payload?.emoji === 'string' ? payload.emoji : ''
     if (!emoji) return
-    socket.to(slug).emit('reaction', { emoji, id: socket.id })
+    const name = typeof socket.data.displayName === 'string' ? socket.data.displayName : 'Anonymous'
+    socket.to(slug).emit('reaction', { emoji, id: socket.id, name })
   })
 
   /**
