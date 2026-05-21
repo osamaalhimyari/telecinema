@@ -102,7 +102,7 @@ export default class Room extends BaseModel {
     if (!this.reactions) return ['👍', '❤️', '😂', '😮', '🎉', '🔥']
     try {
       const parsed = JSON.parse(this.reactions)
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(0, 6)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(0, 8)
     } catch { /* fall through */ }
     return ['👍', '❤️', '😂', '😮', '🎉', '🔥']
   }

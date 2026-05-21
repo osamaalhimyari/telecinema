@@ -215,21 +215,41 @@
   }
 
   /* ------------------------------------------------------------------------
-     Emoji picker — click to toggle, max 6 selected
+     Emoji picker — click to toggle, max 8 selected, collapsed by default
      ------------------------------------------------------------------------ */
 
   var emojiPicker = document.getElementById('emojiPicker')
   var reactionsInput = document.getElementById('reactionsInput')
+  var emojiGrid = document.getElementById('emojiGrid')
+  var emojiToggle = document.getElementById('emojiToggle')
+  var emojiSelected = document.getElementById('emojiSelected')
 
   if (emojiPicker) {
     var emojiOpts = emojiPicker.querySelectorAll('.emoji-opt')
-    var selectedEmojis = ['👍', '❤️', '😂', '😮', '🎉', '🔥']
+    var selectedEmojis = ['👍', '❤️', '😂', '😮', '🎉', '🔥', '👏', '💯']
+
+    function renderSelectedBar() {
+      emojiSelected.innerHTML = ''
+      selectedEmojis.forEach(function (emoji) {
+        var el = document.createElement('span')
+        el.className = 'emoji-selected-item'
+        el.textContent = emoji
+        el.addEventListener('click', function (e) {
+          e.stopPropagation()
+          var idx = selectedEmojis.indexOf(emoji)
+          if (idx !== -1) selectedEmojis.splice(idx, 1)
+          updateReactionsInput()
+        })
+        emojiSelected.appendChild(el)
+      })
+    }
 
     function updateReactionsInput() {
       reactionsInput.value = JSON.stringify(selectedEmojis)
       emojiOpts.forEach(function (btn) {
         btn.classList.toggle('is-selected', selectedEmojis.indexOf(btn.getAttribute('data-emoji')) !== -1)
       })
+      renderSelectedBar()
     }
 
     emojiOpts.forEach(function (btn) {
@@ -238,13 +258,19 @@
         var idx = selectedEmojis.indexOf(emoji)
         if (idx !== -1) {
           selectedEmojis.splice(idx, 1)
-        } else if (selectedEmojis.length < 6) {
+        } else if (selectedEmojis.length < 8) {
           selectedEmojis.push(emoji)
         }
         updateReactionsInput()
       })
     })
 
+    emojiToggle.addEventListener('click', function () {
+      emojiGrid.classList.toggle('is-collapsed')
+      emojiToggle.textContent = emojiGrid.classList.contains('is-collapsed') ? 'Show all emojis' : 'Hide all emojis'
+    })
+
+    emojiGrid.classList.add('is-collapsed')
     updateReactionsInput()
   }
 

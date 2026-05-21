@@ -1821,15 +1821,34 @@
 
   var editEmojiPicker = document.getElementById('editEmojiPicker')
   var editReactionsInput = document.getElementById('editReactionsInput')
+  var editEmojiGrid = document.getElementById('editEmojiGrid')
+  var editEmojiToggle = document.getElementById('editEmojiToggle')
+  var editEmojiSelected = document.getElementById('editEmojiSelected')
   var editSelectedEmojis = []
   if (editEmojiPicker) {
     try { editSelectedEmojis = JSON.parse(editReactionsInput.value || '[]') } catch (e) {}
     var editEmojiOpts = editEmojiPicker.querySelectorAll('.emoji-opt')
+    function renderEditSelectedBar() {
+      editEmojiSelected.innerHTML = ''
+      editSelectedEmojis.forEach(function (emoji) {
+        var el = document.createElement('span')
+        el.className = 'emoji-selected-item'
+        el.textContent = emoji
+        el.addEventListener('click', function (e) {
+          e.stopPropagation()
+          var idx = editSelectedEmojis.indexOf(emoji)
+          if (idx !== -1) editSelectedEmojis.splice(idx, 1)
+          updateEditEmojis()
+        })
+        editEmojiSelected.appendChild(el)
+      })
+    }
     function updateEditEmojis() {
       editReactionsInput.value = JSON.stringify(editSelectedEmojis)
       editEmojiOpts.forEach(function (btn) {
         btn.classList.toggle('is-selected', editSelectedEmojis.indexOf(btn.getAttribute('data-emoji')) !== -1)
       })
+      renderEditSelectedBar()
     }
     editEmojiOpts.forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -1837,12 +1856,17 @@
         var idx = editSelectedEmojis.indexOf(emoji)
         if (idx !== -1) {
           editSelectedEmojis.splice(idx, 1)
-        } else if (editSelectedEmojis.length < 6) {
+        } else if (editSelectedEmojis.length < 8) {
           editSelectedEmojis.push(emoji)
         }
         updateEditEmojis()
       })
     })
+    editEmojiToggle.addEventListener('click', function () {
+      editEmojiGrid.classList.toggle('is-collapsed')
+      editEmojiToggle.textContent = editEmojiGrid.classList.contains('is-collapsed') ? 'Show all emojis' : 'Hide all emojis'
+    })
+    editEmojiGrid.classList.add('is-collapsed')
     updateEditEmojis()
   }
 

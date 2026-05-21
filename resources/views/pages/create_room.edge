@@ -147,9 +147,12 @@
           </div>
 
           <div class="field">
-            <label class="field-label">Room reactions <span class="field-hint">— pick up to 6 emojis</span></label>
+            <label class="field-label">Room reactions <span class="field-hint">— pick up to 8 emojis</span></label>
             <div class="emoji-picker" id="emojiPicker">
-              <input type="hidden" name="reactions" id="reactionsInput" value='["👍","❤️","😂","😮","🎉","🔥"]' />
+              <input type="hidden" name="reactions" id="reactionsInput" value='["👍","❤️","😂","😮","🎉","🔥","👏","💯"]' />
+              <div class="emoji-selected" id="emojiSelected"></div>
+              <div class="emoji-grid" id="emojiGrid"></div>
+              <button class="emoji-toggle" id="emojiToggle" type="button">Show all emojis</button>
             </div>
           </div>
 
@@ -172,18 +175,17 @@
       ;(function () {
         var picker = document.getElementById('emojiPicker')
         var input = document.getElementById('reactionsInput')
-        if (!picker || !input) return
+        var grid = document.getElementById('emojiGrid')
+        if (!picker || !input || !grid) return
         var selected = []
         try { selected = JSON.parse(input.value || '[]') } catch (e) {}
-        picker.innerHTML = ''
-        picker.appendChild(input)
         window.ROOM_EMOJI_OPTIONS.forEach(function (emoji) {
           var btn = document.createElement('button')
           btn.className = 'emoji-opt'
           btn.type = 'button'
           btn.setAttribute('data-emoji', emoji)
           btn.textContent = emoji
-          picker.appendChild(btn)
+          grid.appendChild(btn)
         })
         input.value = JSON.stringify(selected.length ? selected : ['👍','❤️','😂','😮','🎉','🔥','👏','💯'])
       })()
