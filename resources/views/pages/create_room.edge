@@ -150,24 +150,6 @@
             <label class="field-label">Room reactions <span class="field-hint">— pick up to 6 emojis</span></label>
             <div class="emoji-picker" id="emojiPicker">
               <input type="hidden" name="reactions" id="reactionsInput" value='["👍","❤️","😂","😮","🎉","🔥"]' />
-              <button class="emoji-opt" type="button" data-emoji="👍">👍</button>
-              <button class="emoji-opt" type="button" data-emoji="❤️">❤️</button>
-              <button class="emoji-opt" type="button" data-emoji="😂">😂</button>
-              <button class="emoji-opt" type="button" data-emoji="😮">😮</button>
-              <button class="emoji-opt" type="button" data-emoji="🎉">🎉</button>
-              <button class="emoji-opt" type="button" data-emoji="🔥">🔥</button>
-              <button class="emoji-opt" type="button" data-emoji="🎊">🎊</button>
-              <button class="emoji-opt" type="button" data-emoji="💀">💀</button>
-              <button class="emoji-opt" type="button" data-emoji="👀">👀</button>
-              <button class="emoji-opt" type="button" data-emoji="🙈">🙈</button>
-              <button class="emoji-opt" type="button" data-emoji="🥳">🥳</button>
-              <button class="emoji-opt" type="button" data-emoji="😭">😭</button>
-              <button class="emoji-opt" type="button" data-emoji="🥶">🥶</button>
-              <button class="emoji-opt" type="button" data-emoji="🤯">🤯</button>
-              <button class="emoji-opt" type="button" data-emoji="🍿">🍿</button>
-              <button class="emoji-opt" type="button" data-emoji="🎬">🎬</button>
-              <button class="emoji-opt" type="button" data-emoji="👏">👏</button>
-              <button class="emoji-opt" type="button" data-emoji="💯">💯</button>
             </div>
           </div>
 
@@ -183,6 +165,29 @@
       </div>
     </main>
 
+    <script>
+      window.ROOM_EMOJI_OPTIONS = [
+        '👍','❤️','😂','🤣','😊','😍','😎','🥰','🥳','🤩','👏','🙌','🙏','✨','🔥','🎉','💯','🤯','😮','😱','😭','😢','😅','😌','😴','😈','🤔','🤫','🙈','👀','💀','🥶','🍿','🎬','🎊','🎵','💥','🤝','🤘','🎧','🫶','💙','💛','🧡','💜'
+      ]
+      ;(function () {
+        var picker = document.getElementById('emojiPicker')
+        var input = document.getElementById('reactionsInput')
+        if (!picker || !input) return
+        var selected = []
+        try { selected = JSON.parse(input.value || '[]') } catch (e) {}
+        picker.innerHTML = ''
+        picker.appendChild(input)
+        window.ROOM_EMOJI_OPTIONS.forEach(function (emoji) {
+          var btn = document.createElement('button')
+          btn.className = 'emoji-opt'
+          btn.type = 'button'
+          btn.setAttribute('data-emoji', emoji)
+          btn.textContent = emoji
+          picker.appendChild(btn)
+        })
+        input.value = JSON.stringify(selected.length ? selected : ['👍','❤️','😂','😮','🎉','🔥','👏','💯'])
+      })()
+    </script>
     <script src="/js/create_room.js?v=10"></script>
   </body>
 </html>

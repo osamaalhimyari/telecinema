@@ -213,26 +213,31 @@
           <label class="field-label">Reactions <span class="field-hint">pick up to 6</span></label>
           <div class="emoji-picker" id="editEmojiPicker">
             <input type="hidden" id="editReactionsInput" value='{{ JSON.stringify(room.reactionsList) }}' />
-            <button class="emoji-opt" type="button" data-emoji="👍">👍</button>
-            <button class="emoji-opt" type="button" data-emoji="❤️">❤️</button>
-            <button class="emoji-opt" type="button" data-emoji="😂">😂</button>
-            <button class="emoji-opt" type="button" data-emoji="😮">😮</button>
-            <button class="emoji-opt" type="button" data-emoji="🎉">🎉</button>
-            <button class="emoji-opt" type="button" data-emoji="🔥">🔥</button>
-            <button class="emoji-opt" type="button" data-emoji="🎊">🎊</button>
-            <button class="emoji-opt" type="button" data-emoji="💀">💀</button>
-            <button class="emoji-opt" type="button" data-emoji="👀">👀</button>
-            <button class="emoji-opt" type="button" data-emoji="🙈">🙈</button>
-            <button class="emoji-opt" type="button" data-emoji="🥳">🥳</button>
-            <button class="emoji-opt" type="button" data-emoji="😭">😭</button>
-            <button class="emoji-opt" type="button" data-emoji="🥶">🥶</button>
-            <button class="emoji-opt" type="button" data-emoji="🤯">🤯</button>
-            <button class="emoji-opt" type="button" data-emoji="🍿">🍿</button>
-            <button class="emoji-opt" type="button" data-emoji="🎬">🎬</button>
-            <button class="emoji-opt" type="button" data-emoji="👏">👏</button>
-            <button class="emoji-opt" type="button" data-emoji="💯">💯</button>
           </div>
         </div>
+        <script>
+          window.ROOM_EMOJI_OPTIONS = [
+            '👍','👎','❤️','😂','🤣','😊','😍','😎','🥰','🥳','🤩','👏','🙌','🙏','✨','🔥','🎉','💯','🤯','😮','😱','😭','😢','😅','😌','😴','😈','🤔','🤫','🙈','👀','💀','🥶','🍿','🎬','🎊','🎵','💥','🤝','🤘','🎧','🌈','💙','💛','🧡','💜'
+          ]
+          ;(function () {
+            var picker = document.getElementById('editEmojiPicker')
+            var input = document.getElementById('editReactionsInput')
+            if (!picker || !input) return
+            var selected = []
+            try { selected = JSON.parse(input.value || '[]') } catch (e) {}
+            picker.innerHTML = ''
+            picker.appendChild(input)
+            window.ROOM_EMOJI_OPTIONS.forEach(function (emoji) {
+              var btn = document.createElement('button')
+              btn.className = 'emoji-opt'
+              btn.type = 'button'
+              btn.setAttribute('data-emoji', emoji)
+              btn.textContent = emoji
+              picker.appendChild(btn)
+            })
+            input.value = JSON.stringify(selected.length ? selected : ['👍','❤️','😂','😮','🎉','🔥','👏','💯'])
+          })()
+        </script>
         <p class="form-error" id="editModalError" hidden></p>
         <div class="modal-actions">
           <button class="btn-ghost" id="cancelEdit" type="button">Cancel</button>
