@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Create a room — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=9" />
+    <link rel="stylesheet" href="/css/app.css?v=10" />
   </head>
   <body class="page-create">
     @include('partials/flash')
@@ -146,6 +146,31 @@
             </div>
           </div>
 
+          <div class="field">
+            <label class="field-label">Room reactions <span class="field-hint">— pick up to 6 emojis</span></label>
+            <div class="emoji-picker" id="emojiPicker">
+              <input type="hidden" name="reactions" id="reactionsInput" value='["👍","❤️","😂","😮","🎉","🔥"]' />
+              <button class="emoji-opt" type="button" data-emoji="👍">👍</button>
+              <button class="emoji-opt" type="button" data-emoji="❤️">❤️</button>
+              <button class="emoji-opt" type="button" data-emoji="😂">😂</button>
+              <button class="emoji-opt" type="button" data-emoji="😮">😮</button>
+              <button class="emoji-opt" type="button" data-emoji="🎉">🎉</button>
+              <button class="emoji-opt" type="button" data-emoji="🔥">🔥</button>
+              <button class="emoji-opt" type="button" data-emoji="🎊">🎊</button>
+              <button class="emoji-opt" type="button" data-emoji="💀">💀</button>
+              <button class="emoji-opt" type="button" data-emoji="👀">👀</button>
+              <button class="emoji-opt" type="button" data-emoji="🙈">🙈</button>
+              <button class="emoji-opt" type="button" data-emoji="🥳">🥳</button>
+              <button class="emoji-opt" type="button" data-emoji="😭">😭</button>
+              <button class="emoji-opt" type="button" data-emoji="🥶">🥶</button>
+              <button class="emoji-opt" type="button" data-emoji="🤯">🤯</button>
+              <button class="emoji-opt" type="button" data-emoji="🍿">🍿</button>
+              <button class="emoji-opt" type="button" data-emoji="🎬">🎬</button>
+              <button class="emoji-opt" type="button" data-emoji="👏">👏</button>
+              <button class="emoji-opt" type="button" data-emoji="💯">💯</button>
+            </div>
+          </div>
+
           <div class="upload-progress" id="uploadProgress" hidden>
             <div class="upload-progress-bar"><span id="uploadProgressFill"></span></div>
             <span class="upload-progress-label" id="uploadProgressLabel">0%</span>
@@ -158,6 +183,6 @@
       </div>
     </main>
 
-    <script src="/js/create_room.js?v=9"></script>
+    <script src="/js/create_room.js?v=10"></script>
   </body>
 </html>

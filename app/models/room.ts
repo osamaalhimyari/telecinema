@@ -64,6 +64,9 @@ export default class Room extends BaseModel {
   @column()
   declare category: string | null
 
+  @column()
+  declare reactions: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -92,6 +95,16 @@ export default class Room extends BaseModel {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k views`
     if (n === 1) return '1 view'
     return `${n} views`
+  }
+
+  @computed()
+  get reactionsList(): string[] {
+    if (!this.reactions) return ['👍', '❤️', '😂', '😮', '🎉', '🔥']
+    try {
+      const parsed = JSON.parse(this.reactions)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(0, 6)
+    } catch { /* fall through */ }
+    return ['👍', '❤️', '😂', '😮', '🎉', '🔥']
   }
 
   @computed()

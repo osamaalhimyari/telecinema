@@ -15,6 +15,7 @@ export default class extends BaseSeeder {
         thumbnailFilename: 'nature.svg',
         roomType: 'upload',
         isUserCreated: false,
+        reactions: '["👍","❤️","😂","😮","🎉","🔥"]',
       },
       {
         name: 'Space',
@@ -23,6 +24,7 @@ export default class extends BaseSeeder {
         thumbnailFilename: 'space.svg',
         roomType: 'upload',
         isUserCreated: false,
+        reactions: '["👍","❤️","😂","😮","🎉","🔥"]',
       },
       {
         name: 'Ocean',
@@ -31,6 +33,7 @@ export default class extends BaseSeeder {
         thumbnailFilename: 'ocean.svg',
         roomType: 'upload',
         isUserCreated: false,
+        reactions: '["👍","❤️","😂","😮","🎉","🔥"]',
       },
       {
         name: 'City',
@@ -39,6 +42,7 @@ export default class extends BaseSeeder {
         thumbnailFilename: 'city.svg',
         roomType: 'upload',
         isUserCreated: false,
+        reactions: '["👍","❤️","😂","😮","🎉","🔥"]',
       },
     ])
   }

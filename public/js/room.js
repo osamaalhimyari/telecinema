@@ -1674,6 +1674,35 @@
   var cancelEdit = document.getElementById('cancelEdit')
   var roomTitle = document.getElementById('roomTitle')
 
+  /* ---- Edit modal emoji picker ---- */
+
+  var editEmojiPicker = document.getElementById('editEmojiPicker')
+  var editReactionsInput = document.getElementById('editReactionsInput')
+  var editSelectedEmojis = []
+  if (editEmojiPicker) {
+    try { editSelectedEmojis = JSON.parse(editReactionsInput.value || '[]') } catch (e) {}
+    var editEmojiOpts = editEmojiPicker.querySelectorAll('.emoji-opt')
+    function updateEditEmojis() {
+      editReactionsInput.value = JSON.stringify(editSelectedEmojis)
+      editEmojiOpts.forEach(function (btn) {
+        btn.classList.toggle('is-selected', editSelectedEmojis.indexOf(btn.getAttribute('data-emoji')) !== -1)
+      })
+    }
+    editEmojiOpts.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var emoji = btn.getAttribute('data-emoji')
+        var idx = editSelectedEmojis.indexOf(emoji)
+        if (idx !== -1) {
+          editSelectedEmojis.splice(idx, 1)
+        } else if (editSelectedEmojis.length < 6) {
+          editSelectedEmojis.push(emoji)
+        }
+        updateEditEmojis()
+      })
+    })
+    updateEditEmojis()
+  }
+
   if (editBtn && editModal) {
     function openEditModal() {
       editModalError.hidden = true
@@ -1707,6 +1736,7 @@
       body.append('name', name)
       if (editPassword && editPassword.value) body.append('password', editPassword.value)
       if (editCurrentPassword) body.append('currentPassword', editCurrentPassword.value)
+      if (editReactionsInput) body.append('reactions', editReactionsInput.value)
 
       confirmEdit.disabled = true
       confirmEdit.textContent = 'Saving…'

@@ -103,7 +103,7 @@ export default class RoomsController {
    * the request is an AJAX request and as a flash + redirect otherwise.
    */
   async store({ request, response, session }: HttpContext) {
-    const { name, password, roomType, videoUrl, externalUrl } =
+    const { name, password, roomType, videoUrl, externalUrl, reactions } =
       await request.validateUsing(createRoomValidator)
     const wantsJson = request.ajax()
 
@@ -149,6 +149,7 @@ export default class RoomsController {
         externalUrl,
         isUserCreated: true,
         passwordHash: password ? await hash.make(password) : null,
+        reactions: reactions ?? null,
       })
 
       if (room.hasPassword) {
@@ -173,7 +174,7 @@ export default class RoomsController {
       }
       let jobId: string
       try {
-        jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl })
+        jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl, reactions: reactions ?? null })
       } catch (error) {
         return fail(error instanceof Error ? error.message : 'That link could not be used.')
       }
@@ -229,6 +230,7 @@ export default class RoomsController {
       externalUrl: null,
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
+      reactions: reactions ?? null,
     })
 
     /**
@@ -330,6 +332,17 @@ export default class RoomsController {
     }
 
     room.name = name
+
+    const reactions = String(request.input('reactions') ?? '')
+    if (reactions) {
+      try {
+        const parsed = JSON.parse(reactions)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          room.reactions = reactions
+        }
+      } catch { /* keep existing */ }
+    }
+
     await room.save()
 
     return response.json({ success: true, name: room.name })

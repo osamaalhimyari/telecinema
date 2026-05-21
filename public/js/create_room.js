@@ -215,6 +215,40 @@
   }
 
   /* ------------------------------------------------------------------------
+     Emoji picker — click to toggle, max 6 selected
+     ------------------------------------------------------------------------ */
+
+  var emojiPicker = document.getElementById('emojiPicker')
+  var reactionsInput = document.getElementById('reactionsInput')
+
+  if (emojiPicker) {
+    var emojiOpts = emojiPicker.querySelectorAll('.emoji-opt')
+    var selectedEmojis = ['👍', '❤️', '😂', '😮', '🎉', '🔥']
+
+    function updateReactionsInput() {
+      reactionsInput.value = JSON.stringify(selectedEmojis)
+      emojiOpts.forEach(function (btn) {
+        btn.classList.toggle('is-selected', selectedEmojis.indexOf(btn.getAttribute('data-emoji')) !== -1)
+      })
+    }
+
+    emojiOpts.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var emoji = btn.getAttribute('data-emoji')
+        var idx = selectedEmojis.indexOf(emoji)
+        if (idx !== -1) {
+          selectedEmojis.splice(idx, 1)
+        } else if (selectedEmojis.length < 6) {
+          selectedEmojis.push(emoji)
+        }
+        updateReactionsInput()
+      })
+    })
+
+    updateReactionsInput()
+  }
+
+  /* ------------------------------------------------------------------------
      Submit — POST the form, then either redirect or hand off to the poller
      ------------------------------------------------------------------------ */
 

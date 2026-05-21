@@ -211,6 +211,7 @@ function resolveExtension(url: URL, contentType: string | null): string {
 async function createRoom(
   name: string,
   password: string | null,
+  reactions: string | null,
   tmpPath: string,
   ext: string
 ): Promise<Room> {
@@ -232,6 +233,7 @@ async function createRoom(
     externalUrl: null,
     isUserCreated: true,
     passwordHash: password ? await hash.make(password) : null,
+    reactions: reactions ?? null,
   })
 }
 
@@ -254,7 +256,8 @@ async function runDownload(
   jobId: string,
   url: URL,
   name: string,
-  password: string | null
+  password: string | null,
+  reactions: string | null
 ): Promise<void> {
   const job = jobs.get(jobId)
   if (!job) return
@@ -313,7 +316,7 @@ async function runDownload(
     )
 
     /** The bytes are on disk — only now does the room come into existence. */
-    const room = await createRoom(name, password, tmpPath, ext)
+    const room = await createRoom(name, password, reactions, tmpPath, ext)
 
     job.status = 'done'
     job.percent = 100
@@ -341,6 +344,7 @@ export function startUrlDownload(opts: {
   name: string
   password: string | null
   url: string
+  reactions?: string | null
 }): string {
   const url = parseHttpUrl(opts.url)
   const jobId = randomUUID()
@@ -358,7 +362,7 @@ export function startUrlDownload(opts: {
   })
 
   /** Detached on purpose: progress is observed via `getJob`, never awaited. */
-  void runDownload(jobId, url, opts.name, opts.password)
+  void runDownload(jobId, url, opts.name, opts.password, opts.reactions ?? null)
 
   return jobId
 }

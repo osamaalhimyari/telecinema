@@ -454,7 +454,8 @@ a {
 }
 
 .player.is-idle .controls,
-.player.is-idle .top-controls {
+.player.is-idle .top-controls,
+.player.is-idle .reaction-tray {
   opacity: 0;
   pointer-events: none;
 }
@@ -1706,8 +1707,7 @@ a {
   pointer-events: none;
 }
 
-.player:hover .reaction-tray,
-.player.is-idle .reaction-tray {
+.player:hover .reaction-tray {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1895,4 +1895,44 @@ a {
   font-size: 0.75rem;
   color: var(--text-dim);
   margin-top: 2px;
+}
+
+/* ==========================================================================
+   Emoji picker (create-room + edit modal)
+   ========================================================================== */
+
+.emoji-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+
+.emoji-opt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  font-size: 1.15rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.emoji-opt:hover {
+  transform: scale(1.15);
+  border-color: var(--accent-dim);
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.emoji-opt.is-selected {
+  border-color: var(--accent);
+  background: rgba(45, 212, 191, 0.15);
+  transform: scale(1.1);
 }

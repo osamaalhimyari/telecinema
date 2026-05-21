@@ -23,4 +23,5 @@ export const createRoomValidator = vine.create({
   roomType: vine.enum(['upload', 'download', 'external']),
   videoUrl: vine.string().trim().maxLength(2048).nullable().optional(),
   externalUrl: vine.string().trim().url().maxLength(2048).nullable().optional(),
+  reactions: vine.string().nullable().optional(),
 })
