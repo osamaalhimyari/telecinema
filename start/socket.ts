@@ -54,6 +54,37 @@ const rooms = new Map<string, RoomState>()
 const HOME_CHANNEL = 'home'
 
 /**
+ * Tracks connected users per room: socketId -> { name, slug }
+ */
+const roomUsers = new Map<string, Map<string, { name: string }>>()
+
+function addRoomUser(slug: string, socketId: string, name: string): void {
+  let users = roomUsers.get(slug)
+  if (!users) {
+    users = new Map()
+    roomUsers.set(slug, users)
+  }
+  users.set(socketId, { name })
+}
+
+function removeRoomUser(slug: string, socketId: string): void {
+  const users = roomUsers.get(slug)
+  if (!users) return
+  users.delete(socketId)
+  if (users.size === 0) roomUsers.delete(slug)
+}
+
+function getRoomUsers(slug: string): { id: string; name: string }[] {
+  const users = roomUsers.get(slug)
+  if (!users) return []
+  return Array.from(users.entries()).map(([id, u]) => ({ id, name: u.name }))
+}
+
+function broadcastRoomUsers(server: Server, slug: string): void {
+  server.to(slug).emit('room_users', { users: getRoomUsers(slug) })
+}
+
+/**
  * The Socket.io server instance. Exported so controllers (or any other part
  * of the app) can reach into it if needed.
  */
@@ -125,6 +156,19 @@ function registerHandlers(server: Server, socket: Socket) {
   /**
    * A home-page client subscribing to live viewer counts.
    */
+  socket.on('set_name', (payload: { name?: unknown }) => {
+    const name =
+      typeof payload?.name === 'string' && payload.name.trim().length > 0
+        ? payload.name.trim().slice(0, 30)
+        : 'Anonymous'
+    socket.data.displayName = name
+    const slug = socket.data.roomSlug
+    if (typeof slug === 'string' && slug.length > 0) {
+      addRoomUser(slug, socket.id, name)
+      broadcastRoomUsers(server, slug)
+    }
+  })
+
   socket.on('join_home', () => {
     socket.join(HOME_CHANNEL)
     socket.emit('viewer_counts', { counts: viewerCountSnapshot() })
@@ -161,6 +205,14 @@ function registerHandlers(server: Server, socket: Socket) {
     if (!alreadyInRoom) {
       broadcastViewerCount(server, slug, state.viewerCount)
     }
+
+    /* Register user in presence tracking and broadcast list. */
+    const displayName: string =
+      typeof socket.data.displayName === 'string' && socket.data.displayName.length > 0
+        ? socket.data.displayName
+        : 'Anonymous'
+    addRoomUser(slug, socket.id, displayName)
+    broadcastRoomUsers(server, slug)
   })
 
   /**
@@ -302,6 +354,14 @@ function registerHandlers(server: Server, socket: Socket) {
     socket.to(slug).emit('voice_end', { id: socket.id })
   })
 
+  socket.on('reaction', (payload: { emoji?: unknown }) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+    const emoji = typeof payload?.emoji === 'string' ? payload.emoji : ''
+    if (!emoji) return
+    socket.to(slug).emit('reaction', { emoji, id: socket.id })
+  })
+
   /**
    * `disconnecting` fires while `socket.rooms` is still populated, so we can
    * tell which room the socket was watching and decrement its count.
@@ -315,6 +375,12 @@ function registerHandlers(server: Server, socket: Socket) {
      * listener can tear the playback pipeline down cleanly.
      */
     socket.to(slug).emit('voice_end', { id: socket.id })
+
+    /* Remove from presence tracking and broadcast updated list. */
+    removeRoomUser(slug, socket.id)
+    if (rooms.has(slug)) {
+      broadcastRoomUsers(server, slug)
+    }
 
     const state = rooms.get(slug)
     if (!state) return

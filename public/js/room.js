@@ -1412,6 +1412,335 @@
   }
 
   /* ------------------------------------------------------------------------
+     Share link — copy the room URL to the clipboard
+     ------------------------------------------------------------------------ */
+
+  var shareBtn = document.getElementById('shareBtn')
+  if (shareBtn) {
+    shareBtn.addEventListener('click', function () {
+      var url = window.location.href
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          showToast('Link copied!')
+        }).catch(function () {
+          showToast('Could not copy link.', 'error')
+        })
+      } else {
+        // Fallback for non-HTTPS contexts.
+        var ta = document.createElement('textarea')
+        ta.value = url
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        try {
+          document.execCommand('copy')
+          showToast('Link copied!')
+        } catch (e) {
+          showToast('Could not copy link.', 'error')
+        }
+        document.body.removeChild(ta)
+      }
+    })
+  }
+
+  /* ------------------------------------------------------------------------
+     Display name — ask once, store in localStorage, emit on connect
+     ------------------------------------------------------------------------ */
+
+  var DISPLAY_NAME_KEY = 'wp_display_name_' + slug
+
+  function getDisplayName() {
+    try {
+      return localStorage.getItem(DISPLAY_NAME_KEY)
+    } catch (e) {
+      return null
+    }
+  }
+
+  function setDisplayName(name) {
+    try {
+      localStorage.setItem(DISPLAY_NAME_KEY, name)
+    } catch (e) {}
+  }
+
+  ;(function ensureDisplayName() {
+    if (!getDisplayName()) {
+      var name = prompt('Enter your display name for this room:')
+      if (name && name.trim()) {
+        setDisplayName(name.trim().slice(0, 30))
+      } else {
+        setDisplayName('Anonymous')
+      }
+    }
+  })()
+
+  socket.on('connect', function () {
+    var dn = getDisplayName()
+    if (dn) socket.emit('set_name', { name: dn })
+  })
+
+  /* ------------------------------------------------------------------------
+     User presence — who's watching popover
+     ------------------------------------------------------------------------ */
+
+  var presenceBtn = document.getElementById('presenceBtn')
+  var presencePopover = document.getElementById('presencePopover')
+  var presenceList = document.getElementById('presenceList')
+  var presenceAvatars = document.getElementById('presenceAvatars')
+  var presenceCount = document.getElementById('presenceCount')
+
+  var AVATAR_COLORS = ['#2dd4bf', '#f87171', '#60a5fa', '#fbbf24', '#a78bfa', '#34d399', '#fb923c', '#e879f9']
+
+  function avatarColor(name) {
+    var hash = 0
+    for (var i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+  }
+
+  function updatePresence(users) {
+    if (!presenceList || !presenceAvatars || !presenceCount) return
+
+    presenceCount.textContent = users.length
+
+    // Show up to 3 avatar circles.
+    var maxAvatars = 3
+    presenceAvatars.innerHTML = ''
+    users.slice(0, maxAvatars).forEach(function (u) {
+      var span = document.createElement('span')
+      span.className = 'presence-avatar'
+      span.textContent = (u.name.charAt(0) || '?').toUpperCase()
+      span.style.background = avatarColor(u.name)
+      span.title = u.name
+      presenceAvatars.appendChild(span)
+    })
+    if (users.length > maxAvatars) {
+      var more = document.createElement('span')
+      more.className = 'presence-avatar presence-avatar--more'
+      more.textContent = '+' + (users.length - maxAvatars)
+      presenceAvatars.appendChild(more)
+    }
+
+    // Popover list.
+    presenceList.innerHTML = ''
+    if (users.length === 0) {
+      var empty = document.createElement('div')
+      empty.className = 'presence-list-empty'
+      empty.textContent = 'No one else is here yet.'
+      presenceList.appendChild(empty)
+      return
+    }
+    users.forEach(function (u) {
+      var row = document.createElement('div')
+      row.className = 'presence-row'
+      var dot = document.createElement('span')
+      dot.className = 'presence-row-avatar'
+      dot.textContent = (u.name.charAt(0) || '?').toUpperCase()
+      dot.style.background = avatarColor(u.name)
+      row.appendChild(dot)
+      var label = document.createElement('span')
+      label.className = 'presence-row-name'
+      label.textContent = u.name
+      row.appendChild(label)
+      presenceList.appendChild(row)
+    })
+  }
+
+  socket.on('room_users', function (data) {
+    if (data && Array.isArray(data.users)) updatePresence(data.users)
+  })
+
+  if (presenceBtn && presencePopover) {
+    presenceBtn.addEventListener('click', function (e) {
+      e.stopPropagation()
+      var hidden = presencePopover.hasAttribute('hidden')
+      presencePopover.hidden = !hidden
+    })
+    document.addEventListener('click', function (e) {
+      if (!presenceBtn.contains(e.target) && !presencePopover.contains(e.target)) {
+        presencePopover.hidden = true
+      }
+    })
+  }
+
+  /* ------------------------------------------------------------------------
+     Emoji reactions — broadcast to the room, float-up animation
+     ------------------------------------------------------------------------ */
+
+  var reactionTray = document.getElementById('reactionTray')
+  if (reactionTray) {
+    reactionTray.addEventListener('click', function (e) {
+      var btn = e.target.closest('.reaction-btn')
+      if (!btn) return
+      var emoji = btn.getAttribute('data-reaction')
+      if (emoji) socket.emit('reaction', { emoji: emoji })
+    })
+  }
+
+  socket.on('reaction', function (payload) {
+    var emoji = payload && typeof payload.emoji === 'string' ? payload.emoji : null
+    if (!emoji) return
+
+    var el = document.createElement('span')
+    el.className = 'reaction-emoji'
+    el.textContent = emoji
+    el.style.left = (10 + Math.random() * 60) + '%'
+    player.appendChild(el)
+    setTimeout(function () { el.remove() }, 2200)
+  })
+
+  /* ------------------------------------------------------------------------
+     Keyboard shortcuts — keyboard-driven player controls
+     ------------------------------------------------------------------------ */
+
+  var shortcutsModal = document.getElementById('shortcutsModal')
+  var closeShortcutsBtn = document.getElementById('closeShortcutsBtn')
+
+  function openShortcuts() {
+    if (shortcutsModal) {
+      shortcutsModal.classList.add('is-open')
+      shortcutsModal.setAttribute('aria-hidden', 'false')
+    }
+  }
+
+  function closeShortcuts() {
+    if (shortcutsModal) {
+      shortcutsModal.classList.remove('is-open')
+      shortcutsModal.setAttribute('aria-hidden', 'true')
+    }
+  }
+
+  if (closeShortcutsBtn) {
+    closeShortcutsBtn.addEventListener('click', closeShortcuts)
+    shortcutsModal.addEventListener('click', function (e) {
+      if (e.target === shortcutsModal) closeShortcuts()
+    })
+  }
+
+  document.addEventListener('keydown', function (e) {
+    // Ignore when typing in inputs.
+    if (e.target.matches('input, textarea, select')) return
+
+    switch (e.key) {
+      case ' ':
+        e.preventDefault()
+        if (playPause) playPause.click()
+        break
+      case 'ArrowLeft':
+        e.preventDefault()
+        if (back10) back10.click()
+        break
+      case 'ArrowRight':
+        e.preventDefault()
+        if (fwd10) fwd10.click()
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        if (video) seekTo((video.currentTime || 0) + 60)
+        else if (isExternal) virtualSeek(vplay.currentTime + 60)
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        if (video) seekTo((video.currentTime || 0) - 60)
+        else if (isExternal) virtualSeek(vplay.currentTime - 60)
+        break
+      case 'f':
+      case 'F':
+        fullscreenBtn.click()
+        break
+      case 'm':
+      case 'M':
+        micBtn.click()
+        break
+      case '?':
+        openShortcuts()
+        break
+    }
+  })
+
+  /* ------------------------------------------------------------------------
+     Edit room — change name/password through XHR PUT
+     ------------------------------------------------------------------------ */
+
+  var editBtn = document.getElementById('editBtn')
+  var editModal = document.getElementById('editModal')
+  var editName = document.getElementById('editName')
+  var editPassword = document.getElementById('editPassword')
+  var editCurrentPassword = document.getElementById('editCurrentPassword')
+  var editModalError = document.getElementById('editModalError')
+  var confirmEdit = document.getElementById('confirmEdit')
+  var cancelEdit = document.getElementById('cancelEdit')
+  var roomTitle = document.getElementById('roomTitle')
+
+  if (editBtn && editModal) {
+    function openEditModal() {
+      editModalError.hidden = true
+      editModal.classList.add('is-open')
+      editModal.setAttribute('aria-hidden', 'false')
+      if (editPassword) editPassword.value = ''
+      if (editCurrentPassword) editCurrentPassword.value = ''
+      setTimeout(function () { if (editName) editName.focus() }, 30)
+    }
+
+    function closeEditModal() {
+      editModal.classList.remove('is-open')
+      editModal.setAttribute('aria-hidden', 'true')
+    }
+
+    editBtn.addEventListener('click', openEditModal)
+    if (cancelEdit) cancelEdit.addEventListener('click', closeEditModal)
+    editModal.addEventListener('click', function (e) {
+      if (e.target === editModal) closeEditModal()
+    })
+
+    confirmEdit.addEventListener('click', function () {
+      var name = editName ? editName.value.trim() : ''
+      if (name.length < 2) {
+        editModalError.textContent = 'Room name must be at least 2 characters.'
+        editModalError.hidden = false
+        return
+      }
+
+      var body = new FormData()
+      body.append('name', name)
+      if (editPassword && editPassword.value) body.append('password', editPassword.value)
+      if (editCurrentPassword) body.append('currentPassword', editCurrentPassword.value)
+
+      confirmEdit.disabled = true
+      confirmEdit.textContent = 'Saving…'
+
+      var xhr = new XMLHttpRequest()
+      xhr.open('PUT', '/room/' + encodeURIComponent(slug))
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
+      xhr.setRequestHeader('Accept', 'application/json')
+      xhr.addEventListener('load', function () {
+        confirmEdit.disabled = false
+        confirmEdit.textContent = 'Save'
+        var res = {}
+        try { res = JSON.parse(xhr.responseText) } catch (e) {}
+        if (xhr.status >= 200 && xhr.status < 300 && res.success) {
+          if (res.name && roomTitle) roomTitle.textContent = res.name
+          if (document.title) document.title = res.name + ' — Watch Party'
+          closeEditModal()
+          showToast('Room settings saved.')
+        } else {
+          editModalError.textContent = res.error || 'Save failed (HTTP ' + xhr.status + ').'
+          editModalError.hidden = false
+        }
+      })
+      xhr.addEventListener('error', function () {
+        confirmEdit.disabled = false
+        confirmEdit.textContent = 'Save'
+        editModalError.textContent = 'Request failed — check your connection.'
+        editModalError.hidden = false
+      })
+      xhr.send(body)
+    })
+  }
+
+  /* ------------------------------------------------------------------------
      Fullscreen — toggles the whole player (video + controls) in and out of
      the browser's fullscreen mode, with a Safari (webkit) fallback.
      ------------------------------------------------------------------------ */

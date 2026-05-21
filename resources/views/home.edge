@@ -18,13 +18,21 @@
         <a class="btn-primary" href="/create">＋ Create a room</a>
       </div>
       <p class="brand-tagline">Pick a room and watch in perfect sync with everyone else inside.</p>
+      <div class="home-toolbar">
+        <input class="home-search" id="homeSearch" type="search" placeholder="Search rooms…" autocomplete="off" />
+        <div class="home-sort">
+          <button class="sort-btn is-active" data-sort="newest" type="button">Newest</button>
+          <button class="sort-btn" data-sort="name" type="button">Name</button>
+          <button class="sort-btn" data-sort="active" type="button">Active</button>
+        </div>
+      </div>
     </header>
 
     <main class="home-main">
       @if(rooms.length)
         <section class="room-grid">
           @each(room in rooms)
-            <a class="room-card" href="/room/{{ room.slug }}">
+            <a class="room-card" href="/room/{{ room.slug }}" data-room-name="{{ room.name.toLowerCase() }}" data-room-created="{{ room.createdAt.toMillis() }}" data-room-slug="{{ room.slug }}">
               <div class="room-thumb">
                 <img
                   class="room-thumb-img"
@@ -39,6 +47,7 @@
                 @if(room.hasPassword)
                   <span class="lock-badge" title="Password protected">🔒</span>
                 @end
+                <span class="room-card-live" data-slug="{{ room.slug }}"></span>
                 <span class="viewer-badge" data-slug="{{ room.slug }}">
                   <span class="live-dot"></span>
                   <span class="viewer-count">0</span>
@@ -46,8 +55,11 @@
                 </span>
               </div>
               <div class="room-card-body">
-                <h2 class="room-card-title">{{ room.name }}</h2>
-                <span class="room-card-cta">Enter room ›</span>
+                <div class="room-card-body-left">
+                  <h2 class="room-card-title">{{ room.name }}</h2>
+                  <span class="room-card-meta">{{ room.createdAgo }}</span>
+                </div>
+                <span class="room-card-cta">Enter ›</span>
               </div>
             </a>
           @end
@@ -62,6 +74,20 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script>
+      window.showToast = function (message, type) {
+        var t = document.createElement('div')
+        t.className = 'toast' + (type ? ' toast--' + type : '')
+        t.textContent = message
+        document.body.appendChild(t)
+        t.offsetHeight
+        t.classList.add('is-visible')
+        setTimeout(function () {
+          t.classList.remove('is-visible')
+          setTimeout(function () { t.remove() }, 300)
+        }, 4000)
+      }
+    </script>
     <script src="/js/home.js"></script>
   </body>
 </html>

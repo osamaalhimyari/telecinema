@@ -59,6 +59,7 @@ router.get('/video/:filename', [VideosController, 'stream']).as('videos.stream')
  * stored subtitle files to the client overlay.
  */
 router.post('/room/:slug/subtitle', [RoomsController, 'uploadSubtitle']).as('rooms.subtitle')
+router.put('/room/:slug', [RoomsController, 'update']).as('rooms.update')
 router.get('/subtitles/:filename', [RoomsController, 'streamSubtitle']).as('subtitles.stream')
 
 /*

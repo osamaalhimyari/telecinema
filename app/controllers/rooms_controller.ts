@@ -300,6 +300,42 @@ export default class RoomsController {
   }
 
   /**
+   * Updates a room's name and/or password. Protected rooms require the
+   * current password. Returns JSON since this is an XHR endpoint.
+   */
+  async update({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ error: 'That room no longer exists.' })
+    }
+
+    if (room.hasPassword) {
+      const currentPassword = String(request.input('currentPassword') ?? '')
+      if (!(await hash.verify(room.passwordHash!, currentPassword))) {
+        return response.status(403).json({ error: 'Current password is incorrect.' })
+      }
+    }
+
+    const name = String(request.input('name') ?? room.name).trim().slice(0, 80)
+    if (name.length < 2) {
+      return response.status(422).json({ error: 'Room name must be at least 2 characters.' })
+    }
+
+    const newPassword = request.input('password')
+    if (typeof newPassword === 'string' && newPassword.length > 0) {
+      if (newPassword.length < 4) {
+        return response.status(422).json({ error: 'Password must be at least 4 characters.' })
+      }
+      room.passwordHash = await hash.make(newPassword)
+    }
+
+    room.name = name
+    await room.save()
+
+    return response.json({ success: true, name: room.name })
+  }
+
+  /**
    * Deletes a room and its video file. Protected rooms require the correct
    * password, and any room can only be deleted once nobody else is watching.
    */

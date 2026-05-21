@@ -58,13 +58,42 @@ export default class Room extends BaseModel {
   @column()
   declare isUserCreated: boolean
 
+  @column()
+  declare viewCount: number
+
+  @column()
+  declare category: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
+
+  /**
+   * Human-readable relative creation time, e.g. "2h ago", "3d ago".
+   */
+  @computed()
+  get createdAgo(): string {
+    const diff = -this.createdAt.diffNow('seconds').seconds
+    if (diff < 60) return 'just now'
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+    if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`
+    if (diff < 31536000) return `${Math.floor(diff / 2592000)}mo ago`
+    return `${Math.floor(diff / 31536000)}y ago`
+  }
 
   /**
    * Whether the room is password protected. Safe to expose to templates —
    * it reveals only that a password exists, never the hash itself.
    */
+  @computed()
+  get viewCountLabel(): string {
+    const n = this.viewCount
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M views`
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k views`
+    if (n === 1) return '1 view'
+    return `${n} views`
+  }
+
   @computed()
   get hasPassword(): boolean {
     return this.passwordHash !== null && this.passwordHash !== ''

@@ -11,12 +11,23 @@
 
     <div class="room-topbar">
       <a class="room-back" href="/">‹ Rooms</a>
-      <h1 class="room-title">{{ room.name }}</h1>
+      <h1 class="room-title" id="roomTitle">{{ room.name }}</h1>
+      <div class="presence-area" id="presenceArea">
+        <button class="room-presence-btn" id="presenceBtn" type="button" title="Who's watching">
+          <span class="presence-avatars" id="presenceAvatars"></span>
+          <span class="presence-count" id="presenceCount">0</span>
+        </button>
+        <div class="presence-popover" id="presencePopover" hidden>
+          <div class="presence-list" id="presenceList"></div>
+        </div>
+      </div>
       <span class="viewer-badge">
         <span class="live-dot"></span>
         <span class="viewer-count" id="viewerCount">0</span>
         <span class="viewer-label">watching</span>
       </span>
+      <button class="room-share-btn" id="shareBtn" type="button" title="Copy room link">⤴</button>
+      <button class="room-delete-btn" id="editBtn" type="button">Edit</button>
       <button class="room-delete-btn" id="deleteBtn" type="button">Delete</button>
     </div>
 
@@ -147,6 +158,15 @@
           </div>
         </div>
 
+        {{-- Reaction tray — click to broadcast an emoji to the room --}}
+        <div class="reaction-tray" id="reactionTray">
+          <button class="reaction-btn" data-reaction="👍" type="button" title="Like">👍</button>
+          <button class="reaction-btn" data-reaction="❤️" type="button" title="Love">❤️</button>
+          <button class="reaction-btn" data-reaction="😂" type="button" title="Laugh">😂</button>
+          <button class="reaction-btn" data-reaction="😮" type="button" title="Wow">😮</button>
+          <button class="reaction-btn" data-reaction="🎉" type="button" title="Celebrate">🎉</button>
+        </div>
+
         {{-- Overlays sit outside the rotor so messages stay upright --}}
 
         @if(room.roomType !== 'external')
@@ -172,6 +192,52 @@
         @end
       </div>
     </main>
+
+    {{-- Edit room modal --}}
+    <div class="modal" id="editModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+        <h2 class="modal-title" id="editModalTitle">Edit room settings</h2>
+        <div class="field">
+          <label class="field-label" for="editName">Room name</label>
+          <input class="field-input" id="editName" type="text" maxlength="80" value="{{ room.name }}" />
+        </div>
+        <div class="field">
+          <label class="field-label" for="editPassword">New password <span class="field-hint">leave blank to keep current</span></label>
+          <input class="field-input" id="editPassword" type="password" autocomplete="new-password" />
+        </div>
+        @if(room.hasPassword)
+          <div class="field">
+            <label class="field-label" for="editCurrentPassword">Current password <span class="field-hint">required</span></label>
+            <input class="field-input" id="editCurrentPassword" type="password" autocomplete="current-password" required />
+          </div>
+        @end
+        <p class="form-error" id="editModalError" hidden></p>
+        <div class="modal-actions">
+          <button class="btn-ghost" id="cancelEdit" type="button">Cancel</button>
+          <button class="btn-primary" id="confirmEdit" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
+    {{-- Keyboard shortcuts help overlay --}}
+    <div class="modal" id="shortcutsModal" aria-hidden="true">
+      <div class="modal-card modal-card--narrow" role="dialog" aria-modal="true" aria-labelledby="shortcutsModalTitle">
+        <h2 class="modal-title" id="shortcutsModalTitle">Keyboard shortcuts</h2>
+        <div class="shortcuts-grid">
+          <span class="shortcut-key">Space</span><span class="shortcut-desc">Play / Pause</span>
+          <span class="shortcut-key">←</span><span class="shortcut-desc">Back 10s</span>
+          <span class="shortcut-key">→</span><span class="shortcut-desc">Forward 10s</span>
+          <span class="shortcut-key">↑</span><span class="shortcut-desc">Forward 60s</span>
+          <span class="shortcut-key">↓</span><span class="shortcut-desc">Back 60s</span>
+          <span class="shortcut-key">F</span><span class="shortcut-desc">Fullscreen</span>
+          <span class="shortcut-key">M</span><span class="shortcut-desc">Mic (hold to talk)</span>
+          <span class="shortcut-key">?</span><span class="shortcut-desc">Show shortcuts</span>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-primary" id="closeShortcutsBtn" type="button">Got it</button>
+        </div>
+      </div>
+    </div>
 
     {{-- Delete confirmation modal --}}
     <div class="modal" id="deleteModal" aria-hidden="true">
@@ -287,6 +353,19 @@
       window.ROOM_SLUG = "{{ room.slug }}"
       window.ROOM_TYPE = "{{ room.roomType }}"
       window.ROOM_SUBTITLE = "{{ room.subtitleFilename || '' }}"
+      window.ROOM_NAME = "{{ room.name }}"
+      window.showToast = function (message, type) {
+        var t = document.createElement('div')
+        t.className = 'toast' + (type ? ' toast--' + type : '')
+        t.textContent = message
+        document.body.appendChild(t)
+        t.offsetHeight
+        t.classList.add('is-visible')
+        setTimeout(function () {
+          t.classList.remove('is-visible')
+          setTimeout(function () { t.remove() }, 300)
+        }, 4000)
+      }
     </script>
     <script src="/js/room.js?v=14"></script>
   </body>
