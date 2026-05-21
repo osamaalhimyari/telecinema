@@ -1303,6 +1303,10 @@ a {
   }
 }
 
+.voice-speaker-name {
+  color: var(--accent);
+}
+
 /* ---- "Someone is speaking" indicator ------------------------------------ */
 
 .voice-indicator {

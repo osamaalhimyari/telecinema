@@ -32,6 +32,7 @@
   var fullscreenBtn = document.getElementById('fullscreen')
   var micBtn = document.getElementById('micBtn')
   var voiceIndicator = document.getElementById('voiceIndicator')
+  var voiceSpeakerName = document.getElementById('voiceSpeakerName')
   var player = document.getElementById('player')
   var controls = document.getElementById('controls')
   var topControls = document.getElementById('topControls')
@@ -2166,9 +2167,13 @@
 
           micStream = stream
           recorder = new MediaRecorder(stream, { mimeType: recordMime })
-          hideMicLoading()
 
+          var firstChunk = true
           recorder.ondataavailable = function (ev) {
+            if (firstChunk) {
+              firstChunk = false
+              hideMicLoading()
+            }
             if (ev.data && ev.data.size > 0) socket.emit('voice_chunk', ev.data)
           }
           recorder.onstop = function () {
@@ -2229,8 +2234,17 @@
     var voicePlayers = {} // speaker socket id -> playback pipeline
 
     function refreshIndicator() {
-      var active = Object.keys(voicePlayers).length > 0
-      voiceIndicator.classList.toggle('is-visible', active)
+      var ids = Object.keys(voicePlayers)
+      voiceIndicator.classList.toggle('is-visible', ids.length > 0)
+      if (ids.length === 0) {
+        if (voiceSpeakerName) voiceSpeakerName.textContent = ''
+      } else if (ids.length === 1) {
+        if (voiceSpeakerName) voiceSpeakerName.textContent = voicePlayers[ids[0]].name + ' speaking'
+      } else if (ids.length === 2) {
+        if (voiceSpeakerName) voiceSpeakerName.textContent = voicePlayers[ids[0]].name + ' + ' + voicePlayers[ids[1]].name + ' speaking'
+      } else {
+        if (voiceSpeakerName) voiceSpeakerName.textContent = voicePlayers[ids[0]].name + ' + ' + (ids.length - 1) + ' others speaking'
+      }
     }
 
     function pump(id) {
@@ -2271,7 +2285,7 @@
       refreshIndicator()
     }
 
-    function createPlayer(id, mimeType) {
+    function createPlayer(id, mimeType, name) {
       destroyPlayer(id)
 
       var mediaSource = new MediaSource()
@@ -2287,6 +2301,7 @@
         sourceBuffer: null,
         queue: [],
         ended: false,
+        name: name || 'Someone',
       }
       voicePlayers[id] = p
 
@@ -2323,7 +2338,7 @@
 
     socket.on('voice_start', function (data) {
       if (!data || typeof data.id !== 'string') return
-      createPlayer(data.id, data.mimeType)
+      createPlayer(data.id, data.mimeType, data.name || 'Someone')
     })
 
     socket.on('voice_chunk', function (data) {

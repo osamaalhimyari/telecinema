@@ -337,7 +337,8 @@ function registerHandlers(server: Server, socket: Socket) {
     if (typeof slug !== 'string' || slug.length === 0) return
 
     const mimeType = typeof payload?.mimeType === 'string' ? payload.mimeType : ''
-    socket.to(slug).emit('voice_start', { id: socket.id, mimeType })
+    const name = typeof socket.data.displayName === 'string' ? socket.data.displayName : ''
+    socket.to(slug).emit('voice_start', { id: socket.id, mimeType, name })
   })
 
   socket.on('voice_chunk', (chunk: unknown) => {

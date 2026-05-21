@@ -81,7 +81,8 @@
           {{-- Top controls: speaking indicator + viewer count + fullscreen --}}
           <div class="top-controls" id="topControls">
             <span class="voice-indicator" id="voiceIndicator" aria-live="polite">
-              <span class="voice-wave"></span> Someone is speaking
+              <span class="voice-wave"></span>
+              <span class="voice-speaker-name" id="voiceSpeakerName"></span>
             </span>
 
             {{-- Viewer count — only shown in fullscreen, where the topbar is hidden --}}
