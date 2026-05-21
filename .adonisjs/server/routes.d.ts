@@ -13,6 +13,7 @@ export type ScannedRoutes = {
     'rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'rooms.update': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'new_account.store': { paramsTuple?: []; params?: {} }
@@ -48,6 +49,9 @@ export type ScannedRoutes = {
     'new_account.store': { paramsTuple?: []; params?: {} }
     'session.store': { paramsTuple?: []; params?: {} }
     'session.destroy': { paramsTuple?: []; params?: {} }
+  }
+  PUT: {
+    'rooms.update': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
   }
 }
 declare module '@adonisjs/core/types/http' {

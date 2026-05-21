@@ -454,8 +454,7 @@ a {
 }
 
 .player.is-idle .controls,
-.player.is-idle .top-controls,
-.player.is-idle .reaction-tray {
+.player.is-idle .top-controls {
   opacity: 0;
   pointer-events: none;
 }
@@ -598,6 +597,31 @@ a {
   color: var(--text-dim);
 }
 
+/* ---- Join overlay (replaces the old prompt and room_locked page) --------- */
+
+.join-overlay {
+  z-index: 8;
+}
+
+.join-card {
+  max-width: 400px;
+  text-align: center;
+}
+
+.join-card .field {
+  text-align: left;
+  margin-top: 16px;
+}
+
+.join-card .form-error {
+  margin-top: 12px;
+  text-align: left;
+}
+
+.join-card .btn-block {
+  margin-top: 16px;
+}
+
 /* ==========================================================================
    404 / error page
    ========================================================================== */
@@ -665,6 +689,32 @@ a {
 
   .home-main {
     padding: 12px 20px 48px;
+  }
+
+  .room-topbar {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .room-topbar .viewer-badge {
+    display: none;
+  }
+
+  .room-topbar .room-delete-btn {
+    display: none;
+  }
+
+  .room-back {
+    font-size: 0.82rem;
+  }
+
+  .room-title {
+    font-size: 0.95rem;
+  }
+
+  .room-share-btn {
+    padding: 5px 10px;
+    font-size: 0.88rem;
   }
 
   .controls {
@@ -1736,6 +1786,12 @@ a {
 
 .reaction-btn:active {
   transform: scale(0.9);
+}
+
+/* Must come after .player:hover .reaction-tray to win the specificity tie. */
+.player.is-idle .reaction-tray {
+  opacity: 0;
+  pointer-events: none;
 }
 
 @keyframes reactionFloat {

@@ -47,6 +47,7 @@ const shieldConfig = defineConfig({
      */
     exceptRoutes: [
       '/room/:slug/subtitle',
+      '/room/:slug/unlock',
     ],
 
     /**

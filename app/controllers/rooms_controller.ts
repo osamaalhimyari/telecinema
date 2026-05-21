@@ -64,8 +64,8 @@ export default class RoomsController {
 
   /**
    * Room page — the synchronized video player for a single room.
-   * Password-protected rooms first render the unlock page until the visitor
-   * has supplied the correct password during this session.
+   * The room page always loads; password-protected rooms handle the
+   * unlock through a client-side overlay instead of a separate page.
    */
   async show({ params, view, response, session }: HttpContext) {
     const room = await Room.findBy('slug', params.slug)
@@ -75,11 +75,9 @@ export default class RoomsController {
       return view.render('not_found', { slug: params.slug })
     }
 
-    if (room.hasPassword && session.get(this.unlockKey(room.id)) !== true) {
-      return view.render('pages/room_locked', { room })
-    }
+    const roomUnlocked = !room.hasPassword || session.get(this.unlockKey(room.id)) === true
 
-    return view.render('room', { room })
+    return view.render('room', { room, roomUnlocked })
   }
 
   /**
@@ -283,20 +281,30 @@ export default class RoomsController {
 
   /**
    * Verifies a room password and, on success, remembers the unlock in the
-   * session so the visitor can enter the room.
+   * session so the visitor can enter the room. Supports both form POST
+   * (redirect) and XHR (JSON) requests.
    */
   async unlock({ params, request, response, session }: HttpContext) {
     const room = await Room.findBy('slug', params.slug)
     if (!room) {
+      if (request.ajax()) {
+        return response.status(404).json({ error: 'Room not found.' })
+      }
       return response.redirect('/')
     }
 
     const password = String(request.input('password') ?? '')
     if (room.passwordHash && (await hash.verify(room.passwordHash, password))) {
       session.put(this.unlockKey(room.id), true)
+      if (request.ajax()) {
+        return response.json({ success: true })
+      }
       return response.redirect(`/room/${room.slug}`)
     }
 
+    if (request.ajax()) {
+      return response.status(403).json({ error: 'Incorrect password.' })
+    }
     session.flash('error', 'Incorrect password — please try again.')
     return response.redirect().back()
   }

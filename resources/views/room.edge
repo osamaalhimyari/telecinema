@@ -167,13 +167,54 @@
 
         {{-- Overlays sit outside the rotor so messages stay upright --}}
 
+        {{-- Join overlay — shown on page load to collect display name (and
+             password for locked rooms). Replaces the old `prompt()` dialog
+             and the separate room_locked page. --}}
+        <div class="player-overlay join-overlay" id="joinOverlay">
+          <div class="overlay-card join-card">
+            <div class="overlay-icon">🎬</div>
+            <div class="overlay-title" id="joinTitle">Join "{{ room.name }}"</div>
+            <div class="overlay-sub">Enter a display name to join the watch party.</div>
+
+            <div class="field">
+              <label class="field-label" for="joinName">Your display name</label>
+              <input
+                class="field-input"
+                id="joinName"
+                type="text"
+                maxlength="30"
+                placeholder="e.g. MovieFan42"
+                autocomplete="off"
+              />
+            </div>
+
+            @if(room.hasPassword && !roomUnlocked)
+              <div class="field" id="joinPasswordField" hidden>
+                <label class="field-label" for="joinPassword">Room password</label>
+                <input
+                  class="field-input"
+                  id="joinPassword"
+                  type="password"
+                  placeholder="Enter room password"
+                  autocomplete="current-password"
+                />
+              </div>
+            @end
+
+            <p class="form-error" id="joinError" hidden></p>
+
+            <button class="btn-primary btn-block" id="joinBtn" type="button">Join</button>
+          </div>
+        </div>
+
         @if(room.roomType !== 'external')
-          {{-- Shown when unmuted autoplay is blocked until the user interacts --}}
+          {{-- Shown when unmuted autoplay is blocked after the join overlay
+               is dismissed — browser gesture context may have expired. --}}
           <div class="player-overlay player-gate" id="playGate">
             <div class="overlay-card">
               <div class="overlay-icon">▶</div>
-              <div class="overlay-title">Tap to join the watch party</div>
-              <div class="overlay-sub">Browsers block sound-on autoplay until you interact.</div>
+              <div class="overlay-title">Tap to play</div>
+              <div class="overlay-sub">Press play to resume — everyone restarts together.</div>
             </div>
           </div>
 
@@ -381,6 +422,8 @@
       window.ROOM_TYPE = "{{ room.roomType }}"
       window.ROOM_SUBTITLE = "{{ room.subtitleFilename || '' }}"
       window.ROOM_NAME = "{{ room.name }}"
+      window.ROOM_HAS_PASSWORD = {{ room.hasPassword ? 'true' : 'false' }}
+      window.ROOM_UNLOCKED = {{ roomUnlocked ? 'true' : 'false' }}
       window.showToast = function (message, type) {
         var t = document.createElement('div')
         t.className = 'toast' + (type ? ' toast--' + type : '')

@@ -166,7 +166,13 @@
   })
 
   socket.on('connect', function () {
-    socket.emit('join_room', { roomSlug: slug })
+    // Only auto-join the room if the overlay is NOT shown (returning
+    // visitor with stored name and no password required).
+    var dn = getDisplayName()
+    if (dn) socket.emit('set_name', { name: dn })
+    if (hasStoredName && !needsPassword) {
+      socket.emit('join_room', { roomSlug: slug })
+    }
   })
 
   /* ------------------------------------------------------------------------
@@ -1445,7 +1451,7 @@
   }
 
   /* ------------------------------------------------------------------------
-     Display name — ask once, store in localStorage, emit on connect
+     Display name — ask through a styled overlay, store in localStorage
      ------------------------------------------------------------------------ */
 
   var DISPLAY_NAME_KEY = 'wp_display_name_' + slug
@@ -1464,21 +1470,158 @@
     } catch (e) {}
   }
 
-  ;(function ensureDisplayName() {
-    if (!getDisplayName()) {
-      var name = prompt('Enter your display name for this room:')
-      if (name && name.trim()) {
-        setDisplayName(name.trim().slice(0, 30))
-      } else {
-        setDisplayName('Anonymous')
+  /* ---- Join overlay — replaces the old prompt() + room_locked page ------ */
+
+  var joinOverlay = document.getElementById('joinOverlay')
+  var joinName = document.getElementById('joinName')
+  var joinPassword = document.getElementById('joinPassword')
+  var joinPasswordField = document.getElementById('joinPasswordField')
+  var joinBtn = document.getElementById('joinBtn')
+  var joinError = document.getElementById('joinError')
+
+  /**
+   * If a display name is already stored (returning visitor) and there's no
+   * password to enter, skip the join overlay. Otherwise show it.
+   */
+  var hasStoredName = !!getDisplayName()
+  var needsPassword = window.ROOM_HAS_PASSWORD && !window.ROOM_UNLOCKED
+  if ((!hasStoredName || needsPassword) && joinOverlay) {
+    joinOverlay.classList.add('is-visible')
+  }
+
+  /* Pre-fill the name if returning. */
+  if (hasStoredName && joinName) {
+    joinName.value = getDisplayName()
+    /* Reveal the password field if the room is locked. */
+    if (joinPasswordField) {
+      joinPasswordField.hidden = !needsPassword
+    }
+  }
+
+  /* Reveal the password field once the user starts typing a name. */
+  if (joinPasswordField) {
+    joinName.addEventListener('input', function () {
+      joinPasswordField.hidden = joinName.value.trim().length === 0
+    })
+  }
+
+  function submitJoin() {
+    var name = joinName ? joinName.value.trim() : ''
+    if (!name) {
+      if (joinError) {
+        joinError.textContent = 'Please enter a display name.'
+        joinError.hidden = false
+      }
+      return
+    }
+
+    if (joinBtn) {
+      joinBtn.disabled = true
+      joinBtn.textContent = 'Joining…'
+    }
+
+    function enterRoom() {
+      setDisplayName(name.slice(0, 30))
+      socket.emit('set_name', { name: name })
+
+      // Establish a user gesture context so the subsequent video.play()
+      // from the sync handler is not blocked by browser autoplay policy.
+      if (video) {
+        video.play().catch(function () {})
+      }
+
+      socket.emit('join_room', { roomSlug: slug })
+      if (joinOverlay) joinOverlay.classList.remove('is-visible')
+      if (joinBtn) {
+        joinBtn.disabled = false
+        joinBtn.textContent = 'Join'
       }
     }
-  })()
 
-  socket.on('connect', function () {
-    var dn = getDisplayName()
-    if (dn) socket.emit('set_name', { name: dn })
-  })
+    // If the room is password-protected and not yet unlocked, POST to the
+    // unlock endpoint first.
+    if (
+      window.ROOM_HAS_PASSWORD &&
+      !window.ROOM_UNLOCKED &&
+      joinPassword &&
+      joinPasswordField &&
+      !joinPasswordField.hidden
+    ) {
+      var password = joinPassword.value
+      if (!password) {
+        if (joinError) {
+          joinError.textContent = 'Please enter the room password.'
+          joinError.hidden = false
+        }
+        if (joinBtn) {
+          joinBtn.disabled = false
+          joinBtn.textContent = 'Join'
+        }
+        return
+      }
+
+      var xhr = new XMLHttpRequest()
+      xhr.open('POST', '/room/' + encodeURIComponent(slug) + '/unlock')
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
+      xhr.setRequestHeader('Accept', 'application/json')
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded')
+      xhr.addEventListener('load', function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          enterRoom()
+        } else {
+          var res = {}
+          try {
+            res = JSON.parse(xhr.responseText)
+          } catch (e) {}
+          if (joinError) {
+            joinError.textContent = res.error || 'Incorrect password.'
+            joinError.hidden = false
+          }
+          if (joinBtn) {
+            joinBtn.disabled = false
+            joinBtn.textContent = 'Join'
+          }
+        }
+      })
+      xhr.addEventListener('error', function () {
+        if (joinError) {
+          joinError.textContent = 'Request failed — check your connection.'
+          joinError.hidden = false
+        }
+        if (joinBtn) {
+          joinBtn.disabled = false
+          joinBtn.textContent = 'Join'
+        }
+      })
+      xhr.send('password=' + encodeURIComponent(password))
+    } else {
+      enterRoom()
+    }
+  }
+
+  if (joinBtn) {
+    joinBtn.addEventListener('click', submitJoin)
+  }
+
+  /* Also submit on Enter key in either input. */
+  if (joinName) {
+    joinName.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        submitJoin()
+      }
+    })
+  }
+  if (joinPassword) {
+    joinPassword.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        submitJoin()
+      }
+    })
+  }
+
+
 
   /* ------------------------------------------------------------------------
      User presence — who's watching popover
