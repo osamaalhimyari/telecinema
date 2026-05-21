@@ -12,8 +12,11 @@
 |
 */
 
+import { unlink } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { Server, type Socket } from 'socket.io'
 import type { Server as HttpServer } from 'node:http'
+import app from '@adonisjs/core/services/app'
 import Room from '#models/room'
 
 /**
@@ -217,10 +220,17 @@ function registerHandlers(server: Server, socket: Socket) {
     if (!room || room.roomType !== 'external') return
 
     /**
-     * Switching source clears any previous subtitle file — the cues no
-     * longer match the content. The file on disk is removed by the next
-     * subtitle upload (or by deleting the room).
+     * Switching source clears any previous subtitle — the cues no longer
+     * match the content. Remove the file from disk first, then null the
+     * column so the controller's `uploadSubtitle` cleanup sees it empty.
      */
+    if (room.subtitleFilename) {
+      try {
+        await unlink(app.makePath('storage/subtitles', basename(room.subtitleFilename)))
+      } catch {
+        /* file already gone — nothing to clean up */
+      }
+    }
     room.externalUrl = raw
     room.subtitleFilename = null
     await room.save()

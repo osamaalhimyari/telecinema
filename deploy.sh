@@ -10,5 +10,5 @@ ln -sf ../.env .env
 # Apply any pending database migrations (creates the rooms/users tables on a
 # fresh database). --force is required because NODE_ENV is production.
 node ace migration:run --force
-# pm2 restart taxi-api-backend
+ pm2 restart watch-party
 echo "✅ Deployed"

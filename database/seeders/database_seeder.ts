@@ -9,11 +9,37 @@ export default class extends BaseSeeder {
   async run() {
     await Room.updateOrCreateMany('slug', [
       {
-        name: '[arabseed].Widows.Bay.S01E04.720p',
+        name: 'Nature',
         slug: 'nature',
-        videoFilename: '[arabseed].Widows.Bay.S01E04.720p.mp4',
+        videoFilename: 'nature.mp4',
         thumbnailFilename: 'nature.svg',
+        roomType: 'upload',
+        isUserCreated: false,
       },
-        ])
+      {
+        name: 'Space',
+        slug: 'space',
+        videoFilename: 'space.mp4',
+        thumbnailFilename: 'space.svg',
+        roomType: 'upload',
+        isUserCreated: false,
+      },
+      {
+        name: 'Ocean',
+        slug: 'ocean',
+        videoFilename: 'ocean.mp4',
+        thumbnailFilename: 'ocean.svg',
+        roomType: 'upload',
+        isUserCreated: false,
+      },
+      {
+        name: 'City',
+        slug: 'city',
+        videoFilename: 'city.mp4',
+        thumbnailFilename: 'city.svg',
+        roomType: 'upload',
+        isUserCreated: false,
+      },
+    ])
   }
 }

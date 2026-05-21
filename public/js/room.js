@@ -259,6 +259,9 @@
     video.addEventListener('error', function () {
       videoError.classList.add('is-visible')
     })
+    video.addEventListener('canplay', function () {
+      videoError.classList.remove('is-visible')
+    })
 
     /* ----------------------------------------------------------------------
        Autoplay gate — clicking it counts as a user gesture, after which we
