@@ -1638,12 +1638,17 @@
       if (!emoji) return
       socket.emit('reaction', { emoji: emoji })
 
-      // Show own reaction locally — small, floats up from the tray
+      // Show own reaction locally — same wrapper + random position as
+      // everyone else's, just without the avatar badge.
+      var wrapper = document.createElement('span')
+      wrapper.className = 'reaction-emoji-wrapper'
+      wrapper.style.left = (10 + Math.random() * 60) + '%'
       var selfEl = document.createElement('span')
-      selfEl.className = 'reaction-emoji reaction-emoji--self'
+      selfEl.className = 'reaction-emoji'
       selfEl.textContent = emoji
-      player.appendChild(selfEl)
-      setTimeout(function () { selfEl.remove() }, 1600)
+      wrapper.appendChild(selfEl)
+      player.appendChild(wrapper)
+      setTimeout(function () { wrapper.remove() }, 1600)
     })
   }
 
@@ -1781,8 +1786,10 @@
   var editEmojiToggle = document.getElementById('editEmojiToggle')
   var editEmojiSelected = document.getElementById('editEmojiSelected')
   var editSelectedEmojis = []
+  var editSavedReactions = ''
   if (editEmojiPicker) {
-    try { editSelectedEmojis = JSON.parse(editReactionsInput.value || '[]') } catch (e) {}
+    editSavedReactions = editReactionsInput.value
+    try { editSelectedEmojis = JSON.parse(editSavedReactions || '[]') } catch (e) {}
     var editEmojiOpts = editEmojiPicker.querySelectorAll('.emoji-opt')
     function renderEditSelectedBar() {
       editEmojiSelected.innerHTML = ''
@@ -1828,6 +1835,11 @@
 
   if (editBtn && editModal) {
     function openEditModal() {
+      // Reset emoji selection to the saved room state
+      if (editEmojiPicker) {
+        try { editSelectedEmojis = JSON.parse(editSavedReactions || '[]') } catch (e) { editSelectedEmojis = [] }
+        updateEditEmojis()
+      }
       editModalError.hidden = true
       editModal.classList.add('is-open')
       editModal.setAttribute('aria-hidden', 'false')
@@ -1890,6 +1902,8 @@
               reactionTray.appendChild(btn)
             })
           }
+          // Remember the saved value so reopening the modal resets correctly
+          editSavedReactions = editReactionsInput ? editReactionsInput.value : ''
           closeEditModal()
           showToast('Room settings saved.')
         } else {
@@ -1930,11 +1944,30 @@
     }
   })
 
+  /**
+   * While in fullscreen the browser's fullscreen element may not bubble
+   * mousemove events in all implementations (especially with an iframe or
+   * video covering the surface).  A document-level mousemove guarantees we
+   * never lose the ability to bring the controls back.
+   */
+  var fsMousemove = null
+
   function onFullscreenChange() {
     var fs = isFullscreen()
     fullscreenBtn.classList.toggle('is-active', fs)
-    // Drive fullscreen layout from a class — more reliable than :fullscreen.
     player.classList.toggle('is-fullscreen', fs)
+
+    if (fs) {
+      fsMousemove = function () {
+        if (Date.now() < ignoreMouseUntil) return
+        scheduleControlsHide()
+      }
+      document.addEventListener('mousemove', fsMousemove)
+    } else if (fsMousemove) {
+      document.removeEventListener('mousemove', fsMousemove)
+      fsMousemove = null
+    }
+
     scheduleControlsHide()
   }
   document.addEventListener('fullscreenchange', onFullscreenChange)

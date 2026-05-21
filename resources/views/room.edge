@@ -261,10 +261,7 @@
           </div>
         </div>
         <script>
-          window.ROOM_EMOJI_OPTIONS = [
-👍, 👎, ❤️, 😂, 🤣, 😊, 😍, 😎, 🥰, 🥳, 🤩, 👏, 🙌, 🙏, ✨, 🔥, 🎉, 💯, 🤯, 😮, 😱, 😭,
- 😢, 😅, 😌, 😴, 😈, 🤔, 🤫, 🙈, 👀, 💀, 🥶, 🍿, 🎬, 🎊, 🎵, 💥, 🤝, 🤘, 🎧, 🌈, 💙, 💛, 🧡, 💜, 🥺, 😡, 😤, 😮‍💨, ✅, ❌, 💖, 🥱, 🥵
-          ]
+          var EMOJI_LIST = '👍,👎,❤️,😂,🤣,😊,😍,😎,🥰,🥳,🤩,👏,🙌,🙏,✨,🔥,🎉,💯,🤯,😮,😱,😭,😢,😅,😌,😴,😈,🤔,🤫,🙈,👀,💀,🥶,🍿,🎬,🎊,🎵,💥,🤝,🤘,🎧,🌈,💙,💛,🧡,💜,🥺,😡,😤,😮‍💨,✅,❌,💖,🥱,🥵'.split(',')
           ;(function () {
             var picker = document.getElementById('editEmojiPicker')
             var input = document.getElementById('editReactionsInput')
@@ -272,7 +269,7 @@
             if (!picker || !input || !grid) return
             var selected = []
             try { selected = JSON.parse(input.value || '[]') } catch (e) {}
-            window.ROOM_EMOJI_OPTIONS.forEach(function (emoji) {
+            EMOJI_LIST.forEach(function (emoji) {
               var btn = document.createElement('button')
               btn.className = 'emoji-opt'
               btn.type = 'button'
