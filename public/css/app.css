@@ -420,7 +420,7 @@ a {
   gap: 10px;
 }
 
-/* ---- Top-right controls (rotate + fullscreen) --------------------------- */
+/* ---- Top-right controls (fullscreen, source, etc.) ----------------------- */
 
 .top-controls {
   position: absolute;
@@ -1235,7 +1235,7 @@ a {
 }
 
 /* ==========================================================================
-   Room page — delete button, rotate state, rotated player, delete modal
+   Room page — delete button, delete modal
    ========================================================================== */
 
 .room-delete-btn {
@@ -1259,11 +1259,6 @@ a {
   color: var(--danger);
   border-color: var(--danger);
   background: rgba(248, 113, 113, 0.1);
-}
-
-#rotate {
-  font-size: 1.1rem;
-  line-height: 1;
 }
 
 .ctrl-btn.is-active {
@@ -1349,28 +1344,10 @@ a {
   }
 }
 
-/* ---- Rotation: the rotor (video + both control bars) turns as one unit -- */
-
 .player-rotor {
   position: relative;
   width: 100%;
-  /* Fill the player so the video inside can expand to full size. When the
-     player is rotated or fullscreen, room.js / the fullscreen rules give the
-     rotor an explicit size that overrides this. */
   height: 100%;
-}
-
-.player.is-rotated {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.player.is-rotated .player-video {
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  object-fit: contain;
 }
 
 /* === Fullscreen =========================================================
@@ -1405,21 +1382,20 @@ a {
   justify-content: center;
 }
 
-/* Non-rotated: the rotor is stretched to cover the whole screen. (When the
-   player is rotated, room.js sizes the rotor itself, so it is excluded.) */
-.player:fullscreen:not(.is-rotated) .player-rotor {
+/* The rotor is stretched to cover the whole screen. */
+.player:fullscreen .player-rotor {
   position: absolute;
   inset: 0;
   width: auto;
   height: auto;
 }
-.player:-webkit-full-screen:not(.is-rotated) .player-rotor {
+.player:-webkit-full-screen .player-rotor {
   position: absolute;
   inset: 0;
   width: auto;
   height: auto;
 }
-.player.is-fullscreen:not(.is-rotated) .player-rotor {
+.player.is-fullscreen .player-rotor {
   position: absolute;
   inset: 0;
   width: auto;
@@ -1480,7 +1456,6 @@ a {
     border-radius: 0 !important;
   }
 
-  /* The rotor fills the player, with any JS rotation/sizing cancelled. */
   .player-rotor {
     position: absolute !important;
     inset: 0 !important;
@@ -1834,20 +1809,6 @@ a {
   }
 }
 
-@keyframes reactionFloatSelf {
-  0% {
-    transform: translateY(0) scale(0.3);
-    opacity: 1;
-  }
-  60% {
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateY(-180px) scale(0.6);
-    opacity: 0;
-  }
-}
-
 .reaction-emoji-wrapper {
   position: absolute;
   bottom: 140px;
@@ -1875,10 +1836,10 @@ a {
 }
 
 .reaction-emoji--self {
-  font-size: 1.2rem;
+  font-size: 2rem;
   bottom: 120px;
-  z-index: 19;
-  animation: reactionFloatSelf 1.6s ease-out forwards;
+  z-index: 20;
+  animation: reactionFloat 2.2s ease-out forwards;
 }
 
 .reaction-avatar {

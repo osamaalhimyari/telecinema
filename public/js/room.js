@@ -29,12 +29,10 @@
   var viewerCountFs = document.getElementById('viewerCountFs')
   var playGate = document.getElementById('playGate')
   var videoError = document.getElementById('videoError')
-  var rotateBtn = document.getElementById('rotate')
   var fullscreenBtn = document.getElementById('fullscreen')
   var micBtn = document.getElementById('micBtn')
   var voiceIndicator = document.getElementById('voiceIndicator')
   var player = document.getElementById('player')
-  var playerRotor = document.getElementById('playerRotor')
   var controls = document.getElementById('controls')
   var topControls = document.getElementById('topControls')
   var deleteBtn = document.getElementById('deleteBtn')
@@ -1306,88 +1304,6 @@
   }
 
   /* ------------------------------------------------------------------------
-     Rotation — the rotate button toggles the whole player (the video AND
-     both control bars) between horizontal and vertical. It is a single 90°
-     turn, on or off: no partial flips. The rotor element is sized so the
-     turned result fits the available space exactly.
-     ------------------------------------------------------------------------ */
-
-  var rotated = false
-
-  function applyRotation() {
-    rotateBtn.classList.toggle('is-active', rotated)
-
-    // Horizontal — clear every rotation style and keep the natural layout.
-    if (!rotated) {
-      player.classList.remove('is-rotated')
-      player.style.width = ''
-      player.style.height = ''
-      playerRotor.style.width = ''
-      playerRotor.style.height = ''
-      playerRotor.style.transform = ''
-      return
-    }
-
-    player.classList.add('is-rotated')
-
-    /**
-     * External rooms have no `<video>` to read pixel dimensions from, so the
-     * rotor is given the player's own dimensions (swapped). That is enough
-     * for an iframe, whose aspect ratio is controlled by the embedded page.
-     */
-    var vw = video ? video.videoWidth : player.clientWidth
-    var vh = video ? video.videoHeight : player.clientHeight
-    if (!vw || !vh) {
-      // Metadata not ready yet — turn now, size correctly once it loads.
-      playerRotor.style.transform = 'rotate(90deg)'
-      return
-    }
-
-    // Space available to the rotated player.
-    var pad = 32
-    var fs = isFullscreen()
-    var topbar = document.querySelector('.room-topbar')
-    var availW = window.innerWidth - (fs ? 0 : pad)
-    var availH = fs
-      ? window.innerHeight
-      : window.innerHeight - (topbar ? topbar.offsetHeight : 56) - pad
-
-    // The turned video is portrait — fit a (vh : vw) box into that space.
-    var portrait = vh / vw
-    var visualW = availW
-    var visualH = visualW / portrait
-    if (visualH > availH) {
-      visualH = availH
-      visualW = visualH * portrait
-    }
-
-    // Non-fullscreen: size the player to the turned result so the stage can
-    // center it. Fullscreen: the player already fills the screen, so only
-    // the rotor is sized and the player centers it.
-    if (fs) {
-      player.style.width = ''
-      player.style.height = ''
-    } else {
-      player.style.width = visualW + 'px'
-      player.style.height = visualH + 'px'
-    }
-
-    // The rotor's un-turned box; a 90° turn lands it on visualW x visualH.
-    playerRotor.style.width = visualH + 'px'
-    playerRotor.style.height = visualW + 'px'
-    playerRotor.style.transform = 'rotate(90deg)'
-  }
-
-  rotateBtn.addEventListener('click', function () {
-    rotated = !rotated
-    applyRotation()
-  })
-
-  // Re-fit a rotated player when metadata arrives or the window resizes.
-  if (video) video.addEventListener('loadedmetadata', applyRotation)
-  window.addEventListener('resize', applyRotation)
-
-  /* ------------------------------------------------------------------------
      Delete-room modal — a confirmation gate in front of the delete form.
      The form itself posts to /room/:slug/delete; the server enforces the
      password and "nobody else watching" rules.
@@ -1960,6 +1876,20 @@
         if (xhr.status >= 200 && xhr.status < 300 && res.success) {
           if (res.name && roomTitle) roomTitle.textContent = res.name
           if (document.title) document.title = res.name + ' — Watch Party'
+          // Update the reaction tray with the newly saved emojis
+          if (editReactionsInput && reactionTray) {
+            var newEmojis = []
+            try { newEmojis = JSON.parse(editReactionsInput.value || '[]') } catch (e) {}
+            reactionTray.innerHTML = ''
+            newEmojis.forEach(function (emoji) {
+              var btn = document.createElement('button')
+              btn.className = 'reaction-btn'
+              btn.setAttribute('data-reaction', emoji)
+              btn.type = 'button'
+              btn.textContent = emoji
+              reactionTray.appendChild(btn)
+            })
+          }
           closeEditModal()
           showToast('Room settings saved.')
         } else {
@@ -2005,8 +1935,6 @@
     fullscreenBtn.classList.toggle('is-active', fs)
     // Drive fullscreen layout from a class — more reliable than :fullscreen.
     player.classList.toggle('is-fullscreen', fs)
-    // A rotated video must be re-fitted to the new viewport dimensions.
-    applyRotation()
     scheduleControlsHide()
   }
   document.addEventListener('fullscreenchange', onFullscreenChange)
@@ -2083,8 +2011,13 @@
   )
 
   player.addEventListener('mouseleave', function () {
+    if (isFullscreen()) return
     clearTimeout(idleTimer)
     hideControls()
+  })
+
+  player.addEventListener('click', function () {
+    if (isFullscreen()) scheduleControlsHide()
   })
 
   // Hovering either control bar keeps it open; leaving restarts the timer.

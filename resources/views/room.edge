@@ -33,8 +33,7 @@
 
     <main class="player-stage">
       <div class="player {{ room.roomType === 'external' ? 'player--external' : '' }}" id="player">
-        {{-- The rotor holds everything that turns together when rotated:
-             the video/iframe and both control bars. --}}
+        {{-- The rotor wraps the video/iframe and both control bars. --}}
         <div class="player-rotor" id="playerRotor">
           @if(room.roomType === 'external')
             {{-- Embed the third-party player as-is. Sandbox is intentionally
@@ -79,7 +78,7 @@
             ></video>
           @end
 
-          {{-- Top controls: speaking indicator + viewer count + rotate + fullscreen --}}
+          {{-- Top controls: speaking indicator + viewer count + fullscreen --}}
           <div class="top-controls" id="topControls">
             <span class="voice-indicator" id="voiceIndicator" aria-live="polite">
               <span class="voice-wave"></span> Someone is speaking
@@ -115,7 +114,6 @@
                 title="Resync everyone — reloads each iframe at the room time"
               >↻</button>
             @end
-            <button class="ctrl-btn" id="rotate" type="button" aria-label="Rotate video" title="Rotate video">⟳</button>
             <button class="ctrl-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
           </div>
 
@@ -264,7 +262,8 @@
         </div>
         <script>
           window.ROOM_EMOJI_OPTIONS = [
-            '👍','👎','❤️','😂','🤣','😊','😍','😎','🥰','🥳','🤩','👏','🙌','🙏','✨','🔥','🎉','💯','🤯','😮','😱','😭','😢','😅','😌','😴','😈','🤔','🤫','🙈','👀','💀','🥶','🍿','🎬','🎊','🎵','💥','🤝','🤘','🎧','🌈','💙','💛','🧡','💜'
+👍, 👎, ❤️, 😂, 🤣, 😊, 😍, 😎, 🥰, 🥳, 🤩, 👏, 🙌, 🙏, ✨, 🔥, 🎉, 💯, 🤯, 😮, 😱, 😭,
+ 😢, 😅, 😌, 😴, 😈, 🤔, 🤫, 🙈, 👀, 💀, 🥶, 🍿, 🎬, 🎊, 🎵, 💥, 🤝, 🤘, 🎧, 🌈, 💙, 💛, 🧡, 💜, 🥺, 😡, 😤, 😮‍💨, ✅, ❌, 💖, 🥱, 🥵
           ]
           ;(function () {
             var picker = document.getElementById('editEmojiPicker')
