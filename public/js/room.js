@@ -73,11 +73,23 @@
      Helpers
      ------------------------------------------------------------------------ */
 
+  /**
+   * Formats a duration in seconds as `m:ss` (under an hour) or
+   * `h:mm:ss` (an hour or more). Padding follows the YouTube/VLC
+   * convention: minutes stay single-digit until hours appear, then jump
+   * to two digits so the columns line up.
+   */
   function formatTime(seconds) {
     if (!isFinite(seconds) || seconds < 0) seconds = 0
-    var m = Math.floor(seconds / 60)
+    var h = Math.floor(seconds / 3600)
+    var m = Math.floor((seconds % 3600) / 60)
     var s = Math.floor(seconds % 60)
-    return m + ':' + (s < 10 ? '0' : '') + s
+    var ss = (s < 10 ? '0' : '') + s
+    if (h > 0) {
+      var mm = (m < 10 ? '0' : '') + m
+      return h + ':' + mm + ':' + ss
+    }
+    return m + ':' + ss
   }
 
   /** Briefly raise the sync guard around a programmatic video mutation. */

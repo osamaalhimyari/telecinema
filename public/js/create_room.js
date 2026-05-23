@@ -98,6 +98,27 @@
     return bytes.toFixed(1) + ' ' + units[i]
   }
 
+  /**
+   * Formats a duration in seconds into the biggest meaningful unit:
+   *   42         → "42s"
+   *   95         → "1m 35s"
+   *   3725       → "1h 2m"
+   * Anything under a second or non-finite collapses to "…".
+   */
+  function formatDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '…'
+    seconds = Math.round(seconds)
+    if (seconds < 60) return seconds + 's'
+    if (seconds < 3600) {
+      var m = Math.floor(seconds / 60)
+      var s = seconds % 60
+      return s === 0 ? m + 'm' : m + 'm ' + s + 's'
+    }
+    var h = Math.floor(seconds / 3600)
+    var rm = Math.floor((seconds % 3600) / 60)
+    return rm === 0 ? h + 'h' : h + 'h ' + rm + 'm'
+  }
+
   function showFile(file) {
     if (!file) {
       dropzone.classList.remove('has-file')
@@ -145,16 +166,26 @@
    * Renders progress. A numeric `percent` fills the bar to that point; a null
    * `percent` (a download whose total size is unknown) switches the bar to an
    * indeterminate animation and reports the bytes received so far instead.
+   *
+   * `etaSeconds` (optional) is appended to the label as a "~Xm Ys left" hint,
+   * making the bar much friendlier for the slow bits of a big download.
    */
-  function renderProgress(percent, bytesDone) {
+  function renderProgress(percent, bytesDone, etaSeconds) {
+    var head
     if (typeof percent === 'number') {
       progressBar.classList.remove('is-indeterminate')
       progressFill.style.width = percent + '%'
-      progressLabel.textContent = percent + '%'
+      head = percent + '%'
     } else {
       progressBar.classList.add('is-indeterminate')
       progressFill.style.width = ''
-      progressLabel.textContent = bytesDone ? formatSize(bytesDone) : '…'
+      head = bytesDone ? formatSize(bytesDone) : '…'
+    }
+
+    if (isFinite(etaSeconds) && etaSeconds > 0) {
+      progressLabel.textContent = head + ' · ~' + formatDuration(etaSeconds) + ' left'
+    } else {
+      progressLabel.textContent = head
     }
   }
 
@@ -178,6 +209,29 @@
 
     var errorCount = 0
 
+    /**
+     * Track download rate so we can show an ETA. We hold a tiny sliding
+     * window of recent (timestamp, bytes) samples and divide the byte
+     * delta by the time delta — much steadier than the instantaneous
+     * rate when the network briefly stalls between polls.
+     */
+    var samples = []
+    var SAMPLE_WINDOW_MS = 8000
+
+    function estimateEta(job) {
+      if (!job || typeof job.bytesDownloaded !== 'number' || !job.totalBytes) return null
+      if (samples.length < 2) return null
+      var oldest = samples[0]
+      var newest = samples[samples.length - 1]
+      var dt = (newest.ts - oldest.ts) / 1000
+      var db = newest.bytes - oldest.bytes
+      if (dt <= 0 || db <= 0) return null
+      var ratePerSec = db / dt
+      var remaining = job.totalBytes - job.bytesDownloaded
+      if (remaining <= 0) return 0
+      return remaining / ratePerSec
+    }
+
     function tick() {
       fetch('/rooms/download/' + encodeURIComponent(jobId), {
         headers: { Accept: 'application/json' },
@@ -198,7 +252,16 @@
             return
           }
 
-          renderProgress(job.percent, job.bytesDownloaded)
+          // Record a sample and drop anything older than the window.
+          if (typeof job.bytesDownloaded === 'number') {
+            var now = Date.now()
+            samples.push({ ts: now, bytes: job.bytesDownloaded })
+            while (samples.length > 1 && now - samples[0].ts > SAMPLE_WINDOW_MS) {
+              samples.shift()
+            }
+          }
+
+          renderProgress(job.percent, job.bytesDownloaded, estimateEta(job))
           window.setTimeout(tick, POLL_INTERVAL)
         })
         .catch(function () {
@@ -324,10 +387,32 @@
     }
 
     // Meaningful only when an actual file is travelling over the wire.
+    // Same windowed rate-tracker pattern as the download poll, so the
+    // user sees a steady ETA on big uploads instead of just a bar.
+    var uploadSamples = []
+    var UPLOAD_SAMPLE_WINDOW_MS = 8000
     xhr.upload.addEventListener('progress', function (evt) {
       if (!evt.lengthComputable || type !== 'upload') return
       var pct = Math.round((evt.loaded / evt.total) * 100)
-      renderProgress(pct)
+
+      var now = Date.now()
+      uploadSamples.push({ ts: now, bytes: evt.loaded })
+      while (uploadSamples.length > 1 && now - uploadSamples[0].ts > UPLOAD_SAMPLE_WINDOW_MS) {
+        uploadSamples.shift()
+      }
+
+      var eta = null
+      if (uploadSamples.length >= 2 && evt.loaded < evt.total) {
+        var oldest = uploadSamples[0]
+        var newest = uploadSamples[uploadSamples.length - 1]
+        var dt = (newest.ts - oldest.ts) / 1000
+        var db = newest.bytes - oldest.bytes
+        if (dt > 0 && db > 0) {
+          eta = (evt.total - evt.loaded) / (db / dt)
+        }
+      }
+
+      renderProgress(pct, evt.loaded, eta)
       if (pct >= 100) progressLabel.textContent = 'Processing…'
     })
 

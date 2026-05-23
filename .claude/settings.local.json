@@ -69,7 +69,8 @@
       "Bash(curl -s -o /tmp/nature.html -w \"HTTP: %{http_code}\\\\n\" http://localhost:3333/room/nature)",
       "Bash(curl -s -o /tmp/nature.html -w \"%{http_code}\" http://localhost:3333/room/nature)",
       "Bash(curl -s -o /tmp/room_app.css -w \"%{http_code}\\\\n\" \"http://localhost:3333/css/app.css?v=19\")",
-      "Bash(taskkill //F //IM node.exe)"
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node --check C:/xampp/htdocs/projects/mine/watch-party/public/js/create_room.js)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\storage\\videos"
