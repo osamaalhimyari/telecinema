@@ -30,6 +30,12 @@ interface RoomState {
   viewerCount: number
   /** Playback rate (0.5..2). Synchronized across the room. */
   playbackRate: number
+  /**
+   * True iff the buffer-watchdog (not a user) caused the current pause.
+   * Used so manual play/pause overrides the watchdog and auto-resume
+   * only fires when we're the ones who paused.
+   */
+  autoPausedForBuffering: boolean
 }
 
 /**
@@ -67,6 +73,10 @@ interface ChatPayload {
   text?: unknown
 }
 
+interface BufferStatePayload {
+  buffering?: unknown
+}
+
 /**
  * In-memory master state for every room, keyed by room slug.
  */
@@ -91,6 +101,35 @@ const roomChats = new Map<string, ChatMessage[]>()
 
 /** Per-socket sliding window for chat rate limiting (timestamps in ms). */
 const chatRateState = new Map<string, number[]>()
+
+/**
+ * Per-room map of currently-buffering sockets → display name. Drives the
+ * "wait for slow viewers" auto-pause: while this map has any entries for
+ * a room, that room is held paused so nobody gets out of sync.
+ */
+const roomBuffering = new Map<string, Map<string, string>>()
+
+function markBuffering(slug: string, socketId: string, name: string): void {
+  let inner = roomBuffering.get(slug)
+  if (!inner) {
+    inner = new Map()
+    roomBuffering.set(slug, inner)
+  }
+  inner.set(socketId, name)
+}
+
+function clearBuffering(slug: string, socketId: string): void {
+  const inner = roomBuffering.get(slug)
+  if (!inner) return
+  inner.delete(socketId)
+  if (inner.size === 0) roomBuffering.delete(slug)
+}
+
+function bufferingList(slug: string): { id: string; name: string }[] {
+  const inner = roomBuffering.get(slug)
+  if (!inner) return []
+  return Array.from(inner.entries()).map(([id, name]) => ({ id, name }))
+}
 
 function pushChatMessage(slug: string, msg: ChatMessage): void {
   let log = roomChats.get(slug)
@@ -167,6 +206,7 @@ function getRoomState(slug: string): RoomState {
       lastUpdated: Date.now(),
       viewerCount: 0,
       playbackRate: 1,
+      autoPausedForBuffering: false,
     }
     rooms.set(slug, state)
   }
@@ -200,6 +240,7 @@ export function dropRoom(slug: string): void {
   rooms.delete(slug)
   roomChats.delete(slug)
   roomUsers.delete(slug)
+  roomBuffering.delete(slug)
   io?.to(slug).emit('room_deleted')
 }
 
@@ -221,6 +262,61 @@ function viewerCountSnapshot(): Record<string, number> {
 function broadcastViewerCount(server: Server, slug: string, count: number) {
   server.to(slug).emit('viewer_count', { slug, count })
   server.to(HOME_CHANNEL).emit('viewer_count', { slug, count })
+}
+
+/** Tells everyone in a room which viewers (if any) are currently buffering. */
+function broadcastWaitState(server: Server, slug: string): void {
+  server.to(slug).emit('wait_state', { users: bufferingList(slug) })
+}
+
+/**
+ * Central buffer-watchdog logic. Called whenever the buffer map for a
+ * room changes — by a `buffer_state` event, or by a socket disconnect.
+ *
+ * - If any viewer is buffering and the room is playing → pause for
+ *   everyone and flag this as our auto-pause.
+ * - If the buffer is empty and we're the one who paused → auto-resume.
+ *
+ * Always re-broadcasts `wait_state` so the banner reflects reality.
+ */
+function evaluateBufferGate(server: Server, slug: string): void {
+  const state = rooms.get(slug)
+  if (!state) {
+    broadcastWaitState(server, slug)
+    return
+  }
+
+  const someoneBuffering = (roomBuffering.get(slug)?.size ?? 0) > 0
+
+  if (someoneBuffering && state.isPlaying && !state.autoPausedForBuffering) {
+    /* Freeze playback right where it is so nobody runs further ahead
+       while the slow viewer is loading. */
+    state.currentTime = effectiveTime(state)
+    state.isPlaying = false
+    state.autoPausedForBuffering = true
+    state.lastUpdated = Date.now()
+
+    server.to(slug).emit('sync', {
+      isPlaying: state.isPlaying,
+      currentTime: state.currentTime,
+      playbackRate: state.playbackRate,
+      serverTime: Date.now(),
+    })
+  } else if (!someoneBuffering && state.autoPausedForBuffering) {
+    /* Everyone is ready again — release the auto-pause we set earlier. */
+    state.isPlaying = true
+    state.autoPausedForBuffering = false
+    state.lastUpdated = Date.now()
+
+    server.to(slug).emit('sync', {
+      isPlaying: state.isPlaying,
+      currentTime: state.currentTime,
+      playbackRate: state.playbackRate,
+      serverTime: Date.now(),
+    })
+  }
+
+  broadcastWaitState(server, slug)
 }
 
 /**
@@ -280,6 +376,9 @@ function registerHandlers(server: Server, socket: Socket) {
     /* Hand the newcomer the recent chat backlog. */
     socket.emit('chat_history', { messages: getChatHistory(slug) })
 
+    /* Show them who (if anyone) is currently holding the room paused. */
+    socket.emit('wait_state', { users: bufferingList(slug) })
+
     if (!alreadyInRoom) {
       broadcastViewerCount(server, slug, state.viewerCount)
     }
@@ -338,12 +437,43 @@ function registerHandlers(server: Server, socket: Socket) {
     else if (action === 'pause') state.isPlaying = false
     // `seek` keeps the existing play/pause status.
 
+    /**
+     * Any explicit user control beats the buffer-watchdog — clear the
+     * flag so a subsequent buffer-clear doesn't auto-resume on top of
+     * the user's choice (e.g. they manually paused while loading).
+     */
+    state.autoPausedForBuffering = false
+
     socket.to(slug).emit('sync', {
       isPlaying: state.isPlaying,
       currentTime: state.currentTime,
       playbackRate: state.playbackRate,
       serverTime: Date.now(),
     })
+  })
+
+  /**
+   * Buffer-state report from a client. Drives the "wait for slow
+   * viewers" auto-pause. Clients should send `{ buffering: true }`
+   * after a stall persists for ~1.5s, and `{ buffering: false }` the
+   * moment playback recovers (or the user manually pauses).
+   */
+  socket.on('buffer_state', (payload: BufferStatePayload) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+
+    const name =
+      typeof socket.data.displayName === 'string' && socket.data.displayName.length > 0
+        ? socket.data.displayName
+        : 'Anonymous'
+
+    if (payload?.buffering === true) {
+      markBuffering(slug, socket.id, name)
+    } else {
+      clearBuffering(slug, socket.id)
+    }
+
+    evaluateBufferGate(server, slug)
   })
 
   /**
@@ -525,6 +655,13 @@ function registerHandlers(server: Server, socket: Socket) {
       broadcastRoomUsers(server, slug)
     }
 
+    /**
+     * Clear any pending buffering state this socket had and re-evaluate
+     * the gate — if this was the last slow viewer, the room can resume.
+     */
+    clearBuffering(slug, socket.id)
+    evaluateBufferGate(server, slug)
+
     const state = rooms.get(slug)
     if (!state) return
 
@@ -539,8 +676,10 @@ function registerHandlers(server: Server, socket: Socket) {
       state.currentTime = 0
       state.lastUpdated = Date.now()
       state.playbackRate = 1
-      /* No one is here — let chat fade with the rest of the room state. */
+      state.autoPausedForBuffering = false
+      /* No one is here — let chat and buffer state fade with the room. */
       roomChats.delete(slug)
+      roomBuffering.delete(slug)
     }
 
     broadcastViewerCount(server, slug, state.viewerCount)

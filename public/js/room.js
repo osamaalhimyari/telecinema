@@ -222,6 +222,51 @@
     window.location.href = '/'
   })
 
+  /**
+   * "Wait for slow viewers" — the server tells us who (if anyone) is
+   * currently buffering. While the list is non-empty the room is held
+   * paused and we show a banner naming the offender(s). An empty list
+   * clears the banner (and the server simultaneously sends a `sync`
+   * that resumes playback).
+   */
+  socket.on('wait_state', function (data) {
+    var users = data && Array.isArray(data.users) ? data.users : []
+    renderWaitBanner(users)
+  })
+
+  function renderWaitBanner(users) {
+    var banner = document.getElementById('waitBanner')
+    var label = document.getElementById('waitBannerLabel')
+    if (!banner || !label) return
+
+    if (users.length === 0) {
+      banner.classList.remove('is-visible')
+      return
+    }
+
+    var myName = null
+    try {
+      myName = localStorage.getItem('wp_display_name_' + slug)
+    } catch (e) {
+      /* localStorage unavailable */
+    }
+
+    var imSlow = false
+    for (var i = 0; i < users.length; i++) {
+      if (users[i].name === myName) { imSlow = true; break }
+    }
+
+    if (imSlow && users.length === 1) {
+      label.textContent = 'Your connection is slow — the room is waiting for you…'
+    } else if (users.length === 1) {
+      label.textContent = users[0].name + ' has connection issues with loading…'
+    } else {
+      var names = users.map(function (u) { return u.name }).join(', ')
+      label.textContent = names + ' have connection issues with loading…'
+    }
+    banner.classList.add('is-visible')
+  }
+
   socket.on('connect', function () {
     // Only auto-join the room if the overlay is NOT shown (returning
     // visitor with stored name and no password required).
@@ -338,6 +383,64 @@
     video.addEventListener('seeked', function () {
       if (!isSyncing) emitControl('seek', video.currentTime)
     })
+
+    /* ----------------------------------------------------------------------
+       Buffer reporter — drives the "wait for slow viewers" feature.
+
+       The browser fires `waiting`/`stalled` when the video runs out of
+       buffered data while trying to play, and `playing`/`canplay` when
+       data flows again. We forward those state changes to the server
+       so it can pause the whole room until everyone is loaded.
+
+       A 1.5s debounce filters out micro-stalls that nobody would
+       notice — we only flag real buffering, not the briefest hiccup.
+       Recoveries are reported immediately for a snappy resume.
+       ---------------------------------------------------------------------- */
+
+    ;(function setupBufferReporter() {
+      var BUFFER_DETECT_MS = 1500
+      var stallTimer = null
+      var reportedBuffering = false
+
+      function reportBuffering(on) {
+        if (on === reportedBuffering) return
+        reportedBuffering = on
+        socket.emit('buffer_state', { buffering: on })
+      }
+
+      function clearStallTimer() {
+        if (stallTimer) {
+          clearTimeout(stallTimer)
+          stallTimer = null
+        }
+      }
+
+      function onStall() {
+        /* A user-initiated pause stalls the stream but isn't a network
+           problem — only flag stalls while the video wants to play. */
+        if (video.paused) return
+        clearStallTimer()
+        stallTimer = setTimeout(function () {
+          reportBuffering(true)
+        }, BUFFER_DETECT_MS)
+      }
+
+      function onRecover() {
+        clearStallTimer()
+        reportBuffering(false)
+      }
+
+      video.addEventListener('waiting', onStall)
+      video.addEventListener('stalled', onStall)
+      video.addEventListener('playing', onRecover)
+      video.addEventListener('canplay', onRecover)
+      /* A real user pause cancels any pending "still buffering" flag and
+         clears one already in flight — pausing isn't a connection issue. */
+      video.addEventListener('pause', function () {
+        clearStallTimer()
+        if (reportedBuffering) reportBuffering(false)
+      })
+    })()
 
     // The video file is missing or unplayable.
     video.addEventListener('error', function () {

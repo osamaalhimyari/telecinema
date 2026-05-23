@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=20" />
+    <link rel="stylesheet" href="/css/app.css?v=21" />
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -192,6 +192,14 @@
               <div class="controls-side controls-side--right"></div>
             </div>
           </div>
+        </div>
+
+        {{-- "Wait for slow viewers" banner — top-center pill that names
+             whoever is currently buffering. Shown by the wait_state
+             socket event; hidden when the list is empty. --}}
+        <div class="wait-banner" id="waitBanner" aria-live="polite">
+          <span class="wait-banner-spinner" aria-hidden="true"></span>
+          <span class="wait-banner-label" id="waitBannerLabel"></span>
         </div>
 
         {{-- Chat flyovers — incoming chat messages briefly appear over the
@@ -508,6 +516,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=20"></script>
+    <script src="/js/room.js?v=21"></script>
   </body>
 </html>

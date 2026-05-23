@@ -2655,6 +2655,65 @@ a {
   }
 }
 
+/* ==========================================================================
+   Wait banner — "<name> has connection issues with loading…"
+   ========================================================================== */
+
+.wait-banner {
+  position: absolute;
+  top: 76px;                 /* clears the top-controls row */
+  left: 50%;
+  transform: translate(-50%, -6px);
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.85);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.wait-banner.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.wait-banner-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(251, 191, 36, 0.3);
+  border-top-color: rgb(251, 191, 36);
+  animation: wait-spin 0.9s linear infinite;
+}
+
+@keyframes wait-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 560px) {
+  .wait-banner {
+    top: 60px;
+    font-size: 0.8rem;
+    padding: 7px 12px;
+  }
+}
+
 /* Speed button glyph weight */
 #speedBtn {
   font-variant-numeric: tabular-nums;
