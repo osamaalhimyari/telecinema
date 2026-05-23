@@ -2525,6 +2525,134 @@ a {
   background: var(--accent-dim);
 }
 
+/* ==========================================================================
+   Chat flyovers — incoming messages briefly float over the player
+   ========================================================================== */
+
+.chat-flyovers {
+  position: absolute;
+  /* Sits above the bottom controls bar (~100px) but below the player
+     overlays. Stacks from the bottom up so the newest message is
+     always lowest in the column. */
+  left: 16px;
+  bottom: 110px;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  max-width: min(420px, calc(100vw - 80px));
+}
+
+.chat-flyover {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px 10px 10px;
+  border-radius: 14px;
+  background: rgba(20, 20, 20, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  /* Initial position for the slide-in. */
+  transform: translateX(-18px);
+  opacity: 0;
+  transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.25, 1),
+              opacity 0.28s ease;
+  max-width: 100%;
+}
+
+.chat-flyover.is-visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.chat-flyover.is-leaving {
+  transform: translateX(-12px);
+  opacity: 0;
+}
+
+.chat-flyover--own {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(8, 38, 35, 0.78);
+}
+
+.chat-flyover-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #07221f;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.chat-flyover-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-flyover-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin-bottom: 1px;
+  line-height: 1.1;
+}
+
+.chat-flyover--own .chat-flyover-name {
+  color: var(--accent);
+}
+
+.chat-flyover-text {
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--text);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.chat-flyover-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  pointer-events: auto;
+}
+
+/* On small screens drop the flyover a little lower (the bottom controls
+   bar is more compact) and let it take more horizontal room. */
+@media (max-width: 560px) {
+  .chat-flyovers {
+    left: 10px;
+    bottom: 96px;
+    gap: 6px;
+    max-width: calc(100vw - 64px);
+  }
+
+  .chat-flyover {
+    padding: 8px 12px 8px 8px;
+    border-radius: 12px;
+  }
+
+  .chat-flyover-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 0.78rem;
+  }
+
+  .chat-flyover-text {
+    font-size: 0.88rem;
+  }
+}
+
 /* Speed button glyph weight */
 #speedBtn {
   font-variant-numeric: tabular-nums;

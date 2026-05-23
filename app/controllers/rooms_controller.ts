@@ -89,11 +89,18 @@ export default class RoomsController {
      * Bump the persistent view counter the first time this session opens
      * the room. Refreshes inside the same session don't count — this gives
      * a more honest "people who've watched" number than a raw hit counter.
+     *
+     * Wrapped in try/catch so a schema mismatch (e.g. an unrun migration)
+     * can never take down the whole room page over a non-critical counter.
      */
     if (roomUnlocked && session.get(this.viewedKey(room.id)) !== true) {
-      room.viewCount = (room.viewCount ?? 0) + 1
-      await room.save()
-      session.put(this.viewedKey(room.id), true)
+      try {
+        room.viewCount = (room.viewCount ?? 0) + 1
+        await room.save()
+        session.put(this.viewedKey(room.id), true)
+      } catch {
+        /* counter update failed — swallow so the room still renders */
+      }
     }
 
     return view.render('room', { room, roomUnlocked })

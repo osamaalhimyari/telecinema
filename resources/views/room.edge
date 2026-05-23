@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=18" />
+    <link rel="stylesheet" href="/css/app.css?v=19" />
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -193,6 +193,12 @@
             </div>
           </div>
         </div>
+
+        {{-- Chat flyovers — incoming chat messages briefly appear over the
+             player in the bottom-left corner so every viewer sees them
+             without opening the side panel. Pointer events are disabled so
+             the overlay never blocks the video controls. --}}
+        <div class="chat-flyovers" id="chatFlyovers" aria-live="polite" aria-atomic="false"></div>
 
         {{-- Reaction toggle button (top-left corner) — opens/closes the floating emoji tray --}}
         <button class="reaction-toggle" id="reactionToggle" type="button" title="Reactions" aria-label="Toggle reaction tray">😊</button>
@@ -502,6 +508,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=18"></script>
+    <script src="/js/room.js?v=19"></script>
   </body>
 </html>

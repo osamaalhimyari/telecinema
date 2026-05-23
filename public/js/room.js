@@ -2572,6 +2572,83 @@
     /** Track the previous author so consecutive messages can be grouped. */
     var lastAuthorId = null
 
+    /**
+     * Floating chat overlays — a brief card pinned to the bottom-left of
+     * the player showing avatar + name + text for each new message.
+     */
+    var flyoverHost = document.getElementById('chatFlyovers')
+    /** Max overlays visible at once before the oldest fades out early. */
+    var FLYOVER_MAX = 4
+    /** How long each overlay stays before its fade-out begins (ms). */
+    var FLYOVER_LIFETIME = 5200
+
+    function spawnFlyover(msg, isOwn) {
+      if (!flyoverHost) return
+
+      // Cap the stack — if there are too many, dismiss the oldest first
+      // so the column never pushes into the top controls bar.
+      while (flyoverHost.children.length >= FLYOVER_MAX) {
+        var oldest = flyoverHost.firstElementChild
+        if (!oldest) break
+        oldest.classList.add('is-leaving')
+        oldest.addEventListener('transitionend', function handleEnd() {
+          oldest.removeEventListener('transitionend', handleEnd)
+          if (oldest.parentNode) oldest.parentNode.removeChild(oldest)
+        })
+        // Hard fallback in case the transition is interrupted.
+        setTimeout(function () {
+          if (oldest.parentNode) oldest.parentNode.removeChild(oldest)
+        }, 400)
+        break
+      }
+
+      var card = document.createElement('div')
+      card.className = 'chat-flyover' + (isOwn ? ' chat-flyover--own' : '')
+
+      var avatar = document.createElement('span')
+      avatar.className = 'chat-flyover-avatar'
+      avatar.textContent = (msg.name.charAt(0) || '?').toUpperCase()
+      avatar.style.background = avatarColor(msg.name)
+      card.appendChild(avatar)
+
+      var body = document.createElement('div')
+      body.className = 'chat-flyover-body'
+
+      var who = document.createElement('div')
+      who.className = 'chat-flyover-name'
+      who.textContent = msg.name
+      body.appendChild(who)
+
+      var text = document.createElement('div')
+      text.className = 'chat-flyover-text'
+      // Same linkify pass as the chat panel — escape, then upgrade URLs.
+      var urlRe = /\bhttps?:\/\/[^\s<]+/g
+      text.innerHTML = escapeHtml(msg.text).replace(urlRe, function (u) {
+        return '<a class="chat-flyover-link" href="' + u + '" target="_blank" rel="noopener noreferrer">' + u + '</a>'
+      })
+      body.appendChild(text)
+
+      card.appendChild(body)
+      flyoverHost.appendChild(card)
+
+      // Trigger the slide-in transition on the next frame so the browser
+      // sees the "from" state first.
+      requestAnimationFrame(function () {
+        card.classList.add('is-visible')
+      })
+
+      // Schedule the fade-out. After the transition finishes the node is
+      // removed from the DOM so the overlay never piles up invisible.
+      setTimeout(function () {
+        if (!card.parentNode) return
+        card.classList.add('is-leaving')
+        card.classList.remove('is-visible')
+        setTimeout(function () {
+          if (card.parentNode) card.parentNode.removeChild(card)
+        }, 400)
+      }, FLYOVER_LIFETIME)
+    }
+
     function renderMessage(msg) {
       if (chatEmpty) chatEmpty.hidden = true
 
@@ -2635,7 +2712,18 @@
         unread += 1
         updateUnreadBadge()
       }
+
+      // Float the message over the player too — but skip when the chat
+      // panel is already on screen (the message is already visible
+      // there) or when this call is part of a history replay (old
+      // messages shouldn't pop up again on every reconnect).
+      if (!isOpen && !suppressFlyovers) {
+        spawnFlyover(msg, isOwn)
+      }
     }
+
+    /** True while replaying history so flyovers don't fire for old messages. */
+    var suppressFlyovers = false
 
     /** Bulk renderer — used on `chat_history` after (re)joining. */
     function renderHistory(messages) {
@@ -2645,7 +2733,12 @@
         if (messages.length === 0) chatMessages.appendChild(chatEmpty)
       }
       lastAuthorId = null
-      messages.forEach(renderMessage)
+      suppressFlyovers = true
+      try {
+        messages.forEach(renderMessage)
+      } finally {
+        suppressFlyovers = false
+      }
       // History never counts as unread.
       unread = 0
       updateUnreadBadge()
