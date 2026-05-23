@@ -28,7 +28,27 @@ interface RoomState {
   /** Date.now() of the last state change — used to extrapolate drift. */
   lastUpdated: number
   viewerCount: number
+  /** Playback rate (0.5..2). Synchronized across the room. */
+  playbackRate: number
 }
+
+/**
+ * A single chat message inside a room. We keep only a small ring buffer
+ * per-room so new joiners can see recent context — full history is not
+ * persisted to the database.
+ */
+interface ChatMessage {
+  id: string
+  name: string
+  text: string
+  /** ms since epoch — for relative rendering on each client. */
+  ts: number
+}
+
+const CHAT_HISTORY_LIMIT = 80
+const CHAT_MAX_LENGTH = 500
+const CHAT_RATE_WINDOW_MS = 6000
+const CHAT_RATE_MAX = 6
 
 /**
  * Payloads exchanged with clients.
@@ -40,6 +60,11 @@ interface JoinRoomPayload {
 interface ControlPayload {
   action?: unknown
   currentTime?: unknown
+  rate?: unknown
+}
+
+interface ChatPayload {
+  text?: unknown
 }
 
 /**
@@ -57,6 +82,46 @@ const HOME_CHANNEL = 'home'
  * Tracks connected users per room: socketId -> { name, slug }
  */
 const roomUsers = new Map<string, Map<string, { name: string }>>()
+
+/**
+ * In-memory per-room chat history. Ephemeral on purpose — a watch-party
+ * room exists to enjoy "the moment together", not as a long-term archive.
+ */
+const roomChats = new Map<string, ChatMessage[]>()
+
+/** Per-socket sliding window for chat rate limiting (timestamps in ms). */
+const chatRateState = new Map<string, number[]>()
+
+function pushChatMessage(slug: string, msg: ChatMessage): void {
+  let log = roomChats.get(slug)
+  if (!log) {
+    log = []
+    roomChats.set(slug, log)
+  }
+  log.push(msg)
+  if (log.length > CHAT_HISTORY_LIMIT) {
+    log.splice(0, log.length - CHAT_HISTORY_LIMIT)
+  }
+}
+
+function getChatHistory(slug: string): ChatMessage[] {
+  return roomChats.get(slug) ?? []
+}
+
+function withinChatRate(socketId: string): boolean {
+  const now = Date.now()
+  let stamps = chatRateState.get(socketId)
+  if (!stamps) {
+    stamps = []
+    chatRateState.set(socketId, stamps)
+  }
+  while (stamps.length > 0 && now - stamps[0] > CHAT_RATE_WINDOW_MS) {
+    stamps.shift()
+  }
+  if (stamps.length >= CHAT_RATE_MAX) return false
+  stamps.push(now)
+  return true
+}
 
 function addRoomUser(slug: string, socketId: string, name: string): void {
   let users = roomUsers.get(slug)
@@ -96,7 +161,13 @@ export let io: Server | undefined
 function getRoomState(slug: string): RoomState {
   let state = rooms.get(slug)
   if (!state) {
-    state = { isPlaying: false, currentTime: 0, lastUpdated: Date.now(), viewerCount: 0 }
+    state = {
+      isPlaying: false,
+      currentTime: 0,
+      lastUpdated: Date.now(),
+      viewerCount: 0,
+      playbackRate: 1,
+    }
     rooms.set(slug, state)
   }
   return state
@@ -109,7 +180,8 @@ function getRoomState(slug: string): RoomState {
  */
 function effectiveTime(state: RoomState): number {
   if (!state.isPlaying) return state.currentTime
-  return state.currentTime + (Date.now() - state.lastUpdated) / 1000
+  const elapsed = (Date.now() - state.lastUpdated) / 1000
+  return state.currentTime + elapsed * (state.playbackRate || 1)
 }
 
 /**
@@ -126,6 +198,8 @@ export function getViewerCount(slug: string): number {
  */
 export function dropRoom(slug: string): void {
   rooms.delete(slug)
+  roomChats.delete(slug)
+  roomUsers.delete(slug)
   io?.to(slug).emit('room_deleted')
 }
 
@@ -199,8 +273,12 @@ function registerHandlers(server: Server, socket: Socket) {
     socket.emit('sync', {
       isPlaying: state.isPlaying,
       currentTime: effectiveTime(state),
+      playbackRate: state.playbackRate,
       serverTime: Date.now(),
     })
+
+    /* Hand the newcomer the recent chat backlog. */
+    socket.emit('chat_history', { messages: getChatHistory(slug) })
 
     if (!alreadyInRoom) {
       broadcastViewerCount(server, slug, state.viewerCount)
@@ -224,15 +302,36 @@ function registerHandlers(server: Server, socket: Socket) {
     if (typeof slug !== 'string' || slug.length === 0) return
 
     const action = payload?.action
-    const currentTime = Number(payload?.currentTime)
-    if (
-      (action !== 'play' && action !== 'pause' && action !== 'seek') ||
-      !Number.isFinite(currentTime)
-    ) {
+    if (action !== 'play' && action !== 'pause' && action !== 'seek' && action !== 'rate') {
       return
     }
 
     const state = getRoomState(slug)
+
+    if (action === 'rate') {
+      const rate = Number(payload?.rate)
+      if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
+      /**
+       * Bring `currentTime` up to date *before* changing the rate, so the
+       * stretch of time played at the old rate isn't retroactively measured
+       * at the new one.
+       */
+      state.currentTime = effectiveTime(state)
+      state.lastUpdated = Date.now()
+      state.playbackRate = Math.round(rate * 100) / 100
+
+      server.to(slug).emit('rate_changed', {
+        playbackRate: state.playbackRate,
+        currentTime: state.currentTime,
+        isPlaying: state.isPlaying,
+        serverTime: Date.now(),
+      })
+      return
+    }
+
+    const currentTime = Number(payload?.currentTime)
+    if (!Number.isFinite(currentTime)) return
+
     state.currentTime = Math.max(0, currentTime)
     state.lastUpdated = Date.now()
     if (action === 'play') state.isPlaying = true
@@ -242,8 +341,44 @@ function registerHandlers(server: Server, socket: Socket) {
     socket.to(slug).emit('sync', {
       isPlaying: state.isPlaying,
       currentTime: state.currentTime,
+      playbackRate: state.playbackRate,
       serverTime: Date.now(),
     })
+  })
+
+  /**
+   * A chat message inside a room. Trimmed, capped, and rate-limited per
+   * socket so a runaway client cannot flood everyone else. The message is
+   * appended to the room's ring buffer and broadcast to every participant
+   * — including the sender, so all clients render messages through the
+   * same code path and see the server-stamped id and timestamp.
+   */
+  socket.on('chat', (payload: ChatPayload) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+
+    const raw = typeof payload?.text === 'string' ? payload.text : ''
+    const text = raw.replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LENGTH)
+    if (!text) return
+
+    if (!withinChatRate(socket.id)) {
+      socket.emit('chat_throttled', { retryAfter: CHAT_RATE_WINDOW_MS })
+      return
+    }
+
+    const name =
+      typeof socket.data.displayName === 'string' && socket.data.displayName.length > 0
+        ? socket.data.displayName
+        : 'Anonymous'
+
+    const message: ChatMessage = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      text,
+      ts: Date.now(),
+    }
+    pushChatMessage(slug, message)
+    server.to(slug).emit('chat', message)
   })
 
   /**
@@ -291,13 +426,18 @@ function registerHandlers(server: Server, socket: Socket) {
     state.isPlaying = false
     state.currentTime = 0
     state.lastUpdated = Date.now()
+    state.playbackRate = 1
+    /* Switching source wipes chat — context no longer applies. */
+    roomChats.delete(slug)
 
     server.to(slug).emit('source_changed', {
       url: raw,
       isPlaying: false,
       currentTime: 0,
+      playbackRate: 1,
       serverTime: Date.now(),
     })
+    server.to(slug).emit('chat_history', { messages: [] })
   })
 
   /**
@@ -317,6 +457,7 @@ function registerHandlers(server: Server, socket: Socket) {
     server.to(slug).emit('force_resync', {
       isPlaying: state.isPlaying,
       currentTime: effectiveTime(state),
+      playbackRate: state.playbackRate,
       serverTime: Date.now(),
     })
   })
@@ -397,9 +538,16 @@ function registerHandlers(server: Server, socket: Socket) {
       state.isPlaying = false
       state.currentTime = 0
       state.lastUpdated = Date.now()
+      state.playbackRate = 1
+      /* No one is here — let chat fade with the rest of the room state. */
+      roomChats.delete(slug)
     }
 
     broadcastViewerCount(server, slug, state.viewerCount)
+  })
+
+  socket.on('disconnect', () => {
+    chatRateState.delete(socket.id)
   })
 }
 

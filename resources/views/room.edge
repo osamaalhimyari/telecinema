@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=15" />
+    <link rel="stylesheet" href="/css/app.css?v=17" />
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -27,11 +27,14 @@
         <span class="viewer-label">watching</span>
       </span>
       <button class="room-share-btn" id="shareBtn" type="button" title="Copy room link">⤴</button>
+      <button class="room-share-btn" id="chatToggle" type="button" title="Toggle chat (C)">
+        💬<span class="chat-toggle-badge" id="chatToggleBadge" hidden>0</span>
+      </button>
       <button class="room-delete-btn" id="editBtn" type="button">Edit</button>
       <button class="room-delete-btn" id="deleteBtn" type="button">Delete</button>
     </div>
 
-    <main class="player-stage">
+    <main class="player-stage" id="playerStage">
       <div class="player {{ room.roomType === 'external' ? 'player--external' : '' }}" id="player">
         {{-- The rotor wraps the video/iframe and both control bars. --}}
         <div class="player-rotor" id="playerRotor">
@@ -114,6 +117,21 @@
                 aria-label="Resync everyone to the room time"
                 title="Resync everyone — reloads each iframe at the room time"
               >↻</button>
+            @else
+              <button
+                class="ctrl-btn"
+                id="speedBtn"
+                type="button"
+                aria-label="Playback speed (synced)"
+                title="Playback speed — synced across the room"
+              >1×</button>
+              <button
+                class="ctrl-btn"
+                id="pipBtn"
+                type="button"
+                aria-label="Picture in Picture"
+                title="Picture-in-Picture"
+              >⧉</button>
             @end
             <button class="ctrl-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
           </div>
@@ -232,6 +250,31 @@
           </div>
         @end
       </div>
+
+      {{-- Chat sidebar: docked alongside the player on desktop, slide-over on
+           mobile. Driven entirely by Socket.io: each message is broadcast to
+           the room, including the sender, so every client renders through the
+           same DOM path. --}}
+      <aside class="chat-panel" id="chatPanel" aria-label="Room chat">
+        <header class="chat-header">
+          <span class="chat-title">Chat</span>
+          <button class="chat-close" id="chatClose" type="button" aria-label="Close chat">×</button>
+        </header>
+        <div class="chat-messages" id="chatMessages" aria-live="polite">
+          <p class="chat-empty" id="chatEmpty">No messages yet — say hi 👋</p>
+        </div>
+        <form class="chat-form" id="chatForm" autocomplete="off">
+          <input
+            class="chat-input"
+            id="chatInput"
+            type="text"
+            maxlength="500"
+            placeholder="Send a message…"
+            aria-label="Message"
+          />
+          <button class="chat-send" id="chatSend" type="submit" aria-label="Send message">➤</button>
+        </form>
+      </aside>
     </main>
 
     {{-- Edit room modal --}}
@@ -301,6 +344,7 @@
           <span class="shortcut-key">↓</span><span class="shortcut-desc">Back 60s</span>
           <span class="shortcut-key">F</span><span class="shortcut-desc">Fullscreen</span>
           <span class="shortcut-key">M</span><span class="shortcut-desc">Mic (hold to talk)</span>
+          <span class="shortcut-key">C</span><span class="shortcut-desc">Toggle chat</span>
           <span class="shortcut-key">?</span><span class="shortcut-desc">Show shortcuts</span>
         </div>
         <div class="modal-actions">
@@ -439,6 +483,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=15"></script>
+    <script src="/js/room.js?v=17"></script>
   </body>
 </html>

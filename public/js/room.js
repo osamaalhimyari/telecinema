@@ -105,17 +105,38 @@
      Applying state received from the server
      ------------------------------------------------------------------------ */
 
+  /** Currently agreed-upon playback rate (1× by default). */
+  var currentRate = 1
+
+  function applyRate(rate) {
+    rate = Number(rate)
+    if (!isFinite(rate) || rate <= 0) rate = 1
+    currentRate = rate
+    if (video) {
+      try {
+        video.playbackRate = rate
+      } catch (e) {
+        /* some browsers refuse exotic rates — silently ignore */
+      }
+    }
+    var speedBtn = document.getElementById('speedBtn')
+    if (speedBtn) speedBtn.textContent = (rate === 1 ? '1' : String(rate)) + '×'
+  }
+
   function applySync(state) {
     isSyncing = true
+
+    if (state.playbackRate) applyRate(state.playbackRate)
 
     var target = Number(state.currentTime) || 0
 
     /**
      * When the room is playing, compensate for the network latency between
-     * the server stamping the event and us receiving it.
+     * the server stamping the event and us receiving it. The room's
+     * playback rate stretches that wall-clock gap into media time.
      */
     if (state.isPlaying && state.serverTime) {
-      target += (Date.now() - state.serverTime) / 1000
+      target += ((Date.now() - state.serverTime) / 1000) * currentRate
     }
 
     try {
@@ -149,6 +170,31 @@
     lastSync = state
     if (video) applySync(state)
     else if (isExternal) applyExternalSync(state)
+  })
+
+  /**
+   * The room's playback rate was changed by someone. We get the freshly
+   * timed `currentTime` along with it so a rate flip never causes a visible
+   * jump on the other clients — apply the time first, then the new rate.
+   */
+  socket.on('rate_changed', function (state) {
+    if (!state) return
+    if (video) {
+      isSyncing = true
+      try {
+        if (typeof state.currentTime === 'number') {
+          var t = state.currentTime
+          if (state.isPlaying && state.serverTime) {
+            t += ((Date.now() - state.serverTime) / 1000) * Number(state.playbackRate || 1)
+          }
+          video.currentTime = Math.max(0, t)
+        }
+      } catch (e) {}
+      applyRate(state.playbackRate)
+      setTimeout(function () { isSyncing = false }, 120)
+    } else {
+      applyRate(state.playbackRate)
+    }
   })
 
   socket.on('viewer_count', function (data) {
@@ -1889,10 +1935,13 @@
         if (xhr.status >= 200 && xhr.status < 300 && res.success) {
           if (res.name && roomTitle) roomTitle.textContent = res.name
           if (document.title) document.title = res.name + ' — Watch Party'
-          // Update the reaction tray with the newly saved emojis
-          if (editReactionsInput && reactionTray) {
-            var newEmojis = []
-            try { newEmojis = JSON.parse(editReactionsInput.value || '[]') } catch (e) {}
+          // Prefer the server's authoritative list — falls back to whatever
+          // was in the hidden input if the server didn't echo it back.
+          var newEmojis = Array.isArray(res.reactions) ? res.reactions : null
+          if (!newEmojis && editReactionsInput) {
+            try { newEmojis = JSON.parse(editReactionsInput.value || '[]') } catch (e) { newEmojis = [] }
+          }
+          if (newEmojis && reactionTray) {
             reactionTray.innerHTML = ''
             newEmojis.forEach(function (emoji) {
               var btn = document.createElement('button')
@@ -1902,6 +1951,11 @@
               btn.textContent = emoji
               reactionTray.appendChild(btn)
             })
+          }
+          // Keep the hidden input in step with what the server actually
+          // saved, so a follow-up edit doesn't re-submit the unsaved draft.
+          if (editReactionsInput && newEmojis) {
+            editReactionsInput.value = JSON.stringify(newEmojis)
           }
           // Remember the saved value so reopening the modal resets correctly
           editSavedReactions = editReactionsInput ? editReactionsInput.value : ''
@@ -2367,4 +2421,277 @@
   }
 
   setupVoice()
+
+  /* ------------------------------------------------------------------------
+     Synced playback speed (upload/download rooms only).
+     The button cycles through a small list of rates and broadcasts the
+     choice as a `control` event with action `rate`. Every other client
+     receives a `rate_changed` event and applies the same speed locally.
+     ------------------------------------------------------------------------ */
+
+  var speedBtn = document.getElementById('speedBtn')
+  if (speedBtn && video) {
+    var RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    speedBtn.addEventListener('click', function () {
+      var idx = RATES.indexOf(currentRate)
+      var next = RATES[(idx + 1) % RATES.length] || 1
+      applyRate(next)
+      socket.emit('control', { action: 'rate', rate: next, currentTime: video.currentTime })
+    })
+  }
+
+  /* ------------------------------------------------------------------------
+     Picture-in-Picture (upload/download rooms only).
+     Most modern browsers support `requestPictureInPicture` on a <video>; the
+     button is hidden if not. Toggling out of PiP is also supported.
+     ------------------------------------------------------------------------ */
+
+  var pipBtn = document.getElementById('pipBtn')
+  if (pipBtn && video) {
+    if (!document.pictureInPictureEnabled || video.disablePictureInPicture) {
+      pipBtn.hidden = true
+    } else {
+      pipBtn.addEventListener('click', function () {
+        try {
+          if (document.pictureInPictureElement) {
+            document.exitPictureInPicture()
+          } else {
+            video.requestPictureInPicture().catch(function () {})
+          }
+        } catch (e) {
+          /* PiP unavailable in this context — silently ignore */
+        }
+      })
+      video.addEventListener('enterpictureinpicture', function () {
+        pipBtn.classList.add('is-active')
+      })
+      video.addEventListener('leavepictureinpicture', function () {
+        pipBtn.classList.remove('is-active')
+      })
+    }
+  }
+
+  /* ------------------------------------------------------------------------
+     Chat — synchronized real-time messaging per room.
+     Server keeps a small ring buffer of recent messages and broadcasts each
+     new one to every client (including the sender), so all clients render
+     through the same DOM path.
+     ------------------------------------------------------------------------ */
+
+  setupChat()
+
+  function setupChat() {
+    var chatPanel = document.getElementById('chatPanel')
+    var chatToggle = document.getElementById('chatToggle')
+    var chatToggleBadge = document.getElementById('chatToggleBadge')
+    var chatClose = document.getElementById('chatClose')
+    var chatMessages = document.getElementById('chatMessages')
+    var chatEmpty = document.getElementById('chatEmpty')
+    var chatForm = document.getElementById('chatForm')
+    var chatInput = document.getElementById('chatInput')
+    var chatSend = document.getElementById('chatSend')
+    var playerStage = document.getElementById('playerStage')
+
+    if (!chatPanel || !chatForm || !chatInput || !chatMessages) return
+
+    /** Unread message counter — only ticks while the panel is closed. */
+    var unread = 0
+    /** Cached open state so we don't have to query the class every time. */
+    var isOpen = false
+
+    function updateUnreadBadge() {
+      if (!chatToggleBadge) return
+      if (unread <= 0) {
+        chatToggleBadge.hidden = true
+        chatToggleBadge.textContent = '0'
+      } else {
+        chatToggleBadge.hidden = false
+        chatToggleBadge.textContent = unread > 99 ? '99+' : String(unread)
+      }
+    }
+
+    function openChat() {
+      isOpen = true
+      chatPanel.classList.add('is-open')
+      if (playerStage) playerStage.classList.add('has-chat-open')
+      unread = 0
+      updateUnreadBadge()
+      // Defer focus so a tap on the toggle doesn't blur the input immediately.
+      setTimeout(function () { chatInput.focus() }, 50)
+      scrollToBottom(true)
+    }
+
+    function closeChat() {
+      isOpen = false
+      chatPanel.classList.remove('is-open')
+      if (playerStage) playerStage.classList.remove('has-chat-open')
+    }
+
+    function toggleChat() {
+      if (isOpen) closeChat()
+      else openChat()
+    }
+
+    if (chatToggle) chatToggle.addEventListener('click', toggleChat)
+    if (chatClose) chatClose.addEventListener('click', closeChat)
+
+    /**
+     * Decide whether the messages list is at (or very near) the bottom. If
+     * it is, a new message scrolls it down automatically; if the user has
+     * scrolled up to read older messages, we leave the scroll position
+     * alone and bump the unread counter instead.
+     */
+    function isPinnedToBottom() {
+      var gap = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight
+      return gap < 40
+    }
+
+    function scrollToBottom(force) {
+      if (force || isPinnedToBottom()) {
+        chatMessages.scrollTop = chatMessages.scrollHeight
+      }
+    }
+
+    function formatTs(ts) {
+      var d = new Date(ts)
+      var h = d.getHours()
+      var m = d.getMinutes()
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m
+    }
+
+    /** Escape text for safe insertion as innerHTML. */
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+    }
+
+    /** Track the previous author so consecutive messages can be grouped. */
+    var lastAuthorId = null
+
+    function renderMessage(msg) {
+      if (chatEmpty) chatEmpty.hidden = true
+
+      var ownName = (function () {
+        try { return localStorage.getItem(DISPLAY_NAME_KEY) } catch (e) { return null }
+      })()
+      var isOwn = ownName && ownName === msg.name
+
+      var groupKey = msg.name + '::' + (isOwn ? 'self' : 'other')
+      var grouped = lastAuthorId === groupKey
+      lastAuthorId = groupKey
+
+      var row = document.createElement('div')
+      row.className = 'chat-msg' + (isOwn ? ' chat-msg--own' : '') + (grouped ? ' chat-msg--grouped' : '')
+
+      if (!grouped) {
+        var avatar = document.createElement('span')
+        avatar.className = 'chat-msg-avatar'
+        avatar.textContent = (msg.name.charAt(0) || '?').toUpperCase()
+        avatar.style.background = avatarColor(msg.name)
+        row.appendChild(avatar)
+      } else {
+        var spacer = document.createElement('span')
+        spacer.className = 'chat-msg-avatar chat-msg-avatar--spacer'
+        row.appendChild(spacer)
+      }
+
+      var body = document.createElement('div')
+      body.className = 'chat-msg-body'
+
+      if (!grouped) {
+        var head = document.createElement('div')
+        head.className = 'chat-msg-head'
+        var who = document.createElement('span')
+        who.className = 'chat-msg-name'
+        who.textContent = msg.name
+        head.appendChild(who)
+        var when = document.createElement('span')
+        when.className = 'chat-msg-time'
+        when.textContent = formatTs(msg.ts || Date.now())
+        head.appendChild(when)
+        body.appendChild(head)
+      }
+
+      var text = document.createElement('div')
+      text.className = 'chat-msg-text'
+      // Linkify bare http(s) URLs; everything else is escaped.
+      var urlRe = /\bhttps?:\/\/[^\s<]+/g
+      var safe = escapeHtml(msg.text).replace(urlRe, function (u) {
+        return '<a class="chat-msg-link" href="' + u + '" target="_blank" rel="noopener noreferrer">' + u + '</a>'
+      })
+      text.innerHTML = safe
+      body.appendChild(text)
+
+      row.appendChild(body)
+      chatMessages.appendChild(row)
+
+      scrollToBottom(false)
+
+      if (!isOpen && !isOwn) {
+        unread += 1
+        updateUnreadBadge()
+      }
+    }
+
+    /** Bulk renderer — used on `chat_history` after (re)joining. */
+    function renderHistory(messages) {
+      chatMessages.innerHTML = ''
+      if (chatEmpty) {
+        chatEmpty.hidden = messages.length > 0
+        if (messages.length === 0) chatMessages.appendChild(chatEmpty)
+      }
+      lastAuthorId = null
+      messages.forEach(renderMessage)
+      // History never counts as unread.
+      unread = 0
+      updateUnreadBadge()
+      scrollToBottom(true)
+    }
+
+    socket.on('chat', renderMessage)
+    socket.on('chat_history', function (data) {
+      if (data && Array.isArray(data.messages)) renderHistory(data.messages)
+    })
+    socket.on('chat_throttled', function () {
+      if (typeof showToast === 'function') {
+        showToast('You’re sending messages too fast.', 'error')
+      }
+    })
+
+    chatForm.addEventListener('submit', function (e) {
+      e.preventDefault()
+      var text = chatInput.value.trim()
+      if (!text) return
+      // Send without an optimistic render — the server echoes back to us
+      // through the same `chat` broadcast every other client receives.
+      socket.emit('chat', { text: text })
+      chatInput.value = ''
+    })
+
+    // Light input affordance: enable/disable send based on emptiness.
+    function refreshSendState() {
+      if (chatSend) chatSend.disabled = chatInput.value.trim().length === 0
+    }
+    chatInput.addEventListener('input', refreshSendState)
+    refreshSendState()
+  }
+
+  /* ------------------------------------------------------------------------
+     Keyboard shortcut: C toggles chat. Wired here so it sees the freshly
+     created chat panel — keep the keydown handler above untouched.
+     ------------------------------------------------------------------------ */
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'c' && e.key !== 'C') return
+    if (e.target && e.target.matches && e.target.matches('input, textarea, select')) return
+    var chatToggle = document.getElementById('chatToggle')
+    if (chatToggle) {
+      e.preventDefault()
+      chatToggle.click()
+    }
+  })
 })()

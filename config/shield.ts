@@ -46,6 +46,7 @@ const shieldConfig = defineConfig({
      * Useful for webhooks or API endpoints that use other auth methods.
      */
     exceptRoutes: [
+      '/room/:slug',
       '/room/:slug/subtitle',
       '/room/:slug/unlock',
     ],

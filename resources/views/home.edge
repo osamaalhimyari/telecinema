@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Watch Party — Rooms</title>
-    <link rel="stylesheet" href="/css/app.css" />
+    <link rel="stylesheet" href="/css/app.css?v=17" />
   </head>
   <body class="page-home">
     @include('partials/flash')
@@ -57,7 +57,12 @@
               <div class="room-card-body">
                 <div class="room-card-body-left">
                   <h2 class="room-card-title">{{ room.name }}</h2>
-                  <span class="room-card-meta">{{ room.createdAgo }}</span>
+                  <span class="room-card-meta">
+                    {{ room.createdAgo }}
+                    @if(room.viewCount > 0)
+                      <span class="room-card-meta-dot">·</span>{{ room.viewCountLabel }}
+                    @end
+                  </span>
                 </div>
                 <span class="room-card-cta">Enter ›</span>
               </div>

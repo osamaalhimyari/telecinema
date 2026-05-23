@@ -63,6 +63,14 @@ export default class RoomsController {
   }
 
   /**
+   * Session flag set the first time a visitor opens a room in this session.
+   * Stops the view counter from incrementing on every page refresh.
+   */
+  private viewedKey(roomId: number): string {
+    return `room_viewed_${roomId}`
+  }
+
+  /**
    * Room page — the synchronized video player for a single room.
    * The room page always loads; password-protected rooms handle the
    * unlock through a client-side overlay instead of a separate page.
@@ -76,6 +84,17 @@ export default class RoomsController {
     }
 
     const roomUnlocked = !room.hasPassword || session.get(this.unlockKey(room.id)) === true
+
+    /**
+     * Bump the persistent view counter the first time this session opens
+     * the room. Refreshes inside the same session don't count — this gives
+     * a more honest "people who've watched" number than a raw hit counter.
+     */
+    if (roomUnlocked && session.get(this.viewedKey(room.id)) !== true) {
+      room.viewCount = (room.viewCount ?? 0) + 1
+      await room.save()
+      session.put(this.viewedKey(room.id), true)
+    }
 
     return view.render('room', { room, roomUnlocked })
   }
@@ -341,19 +360,37 @@ export default class RoomsController {
 
     room.name = name
 
-    const reactions = String(request.input('reactions') ?? '')
+    const reactions = String(request.input('reactions') ?? '').trim()
     if (reactions) {
+      let parsed: unknown
       try {
-        const parsed = JSON.parse(reactions)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          room.reactions = reactions
-        }
-      } catch { /* keep existing */ }
+        parsed = JSON.parse(reactions)
+      } catch {
+        return response.status(422).json({ error: 'Reactions list could not be read.' })
+      }
+      if (!Array.isArray(parsed)) {
+        return response.status(422).json({ error: 'Reactions must be a list.' })
+      }
+      const cleaned = parsed
+        .filter((e): e is string => typeof e === 'string' && e.trim().length > 0)
+        .slice(0, 8)
+      if (cleaned.length === 0) {
+        return response.status(422).json({ error: 'Pick at least one reaction.' })
+      }
+      /**
+       * Re-stringify the cleaned array so what's saved is always valid JSON
+       * with no extra whitespace, even if the client sent a noisier payload.
+       */
+      room.reactions = JSON.stringify(cleaned)
     }
 
     await room.save()
 
-    return response.json({ success: true, name: room.name })
+    return response.json({
+      success: true,
+      name: room.name,
+      reactions: room.reactionsList,
+    })
   }
 
   /**
