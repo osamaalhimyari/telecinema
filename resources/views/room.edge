@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=17" />
+    <link rel="stylesheet" href="/css/app.css?v=18" />
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -26,12 +26,31 @@
         <span class="viewer-count" id="viewerCount">0</span>
         <span class="viewer-label">watching</span>
       </span>
-      <button class="room-share-btn" id="shareBtn" type="button" title="Copy room link">⤴</button>
       <button class="room-share-btn" id="chatToggle" type="button" title="Toggle chat (C)">
         💬<span class="chat-toggle-badge" id="chatToggleBadge" hidden>0</span>
       </button>
-      <button class="room-delete-btn" id="editBtn" type="button">Edit</button>
-      <button class="room-delete-btn" id="deleteBtn" type="button">Delete</button>
+
+      {{-- Hamburger trigger — only shown at narrow widths via CSS. --}}
+      <button
+        class="topbar-menu-toggle"
+        id="topbarMenuToggle"
+        type="button"
+        aria-label="More actions"
+        aria-haspopup="true"
+        aria-expanded="false"
+      >☰</button>
+
+      {{-- Action buttons. On desktop they sit inline; on mobile this
+           wrapper becomes an absolutely-positioned dropdown opened by
+           the hamburger trigger. --}}
+      <div class="topbar-actions" id="topbarActions">
+        <button class="room-share-btn" id="shareBtn" type="button" title="Copy room link">
+          <span class="topbar-action-icon">⤴</span>
+          <span class="topbar-action-label">Share</span>
+        </button>
+        <button class="room-delete-btn" id="editBtn" type="button">Edit</button>
+        <button class="room-delete-btn" id="deleteBtn" type="button">Delete</button>
+      </div>
     </div>
 
     <main class="player-stage" id="playerStage">
@@ -483,6 +502,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=17"></script>
+    <script src="/js/room.js?v=18"></script>
   </body>
 </html>

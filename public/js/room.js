@@ -2694,4 +2694,50 @@
       chatToggle.click()
     }
   })
+
+  /* ------------------------------------------------------------------------
+     Mobile hamburger menu — collapses the topbar action buttons (Share,
+     Edit, Delete) into a dropdown at narrow widths. The CSS hides the
+     dropdown until `.is-open` is toggled on by this handler.
+     ------------------------------------------------------------------------ */
+
+  ;(function () {
+    var menuToggle = document.getElementById('topbarMenuToggle')
+    var menuItems = document.getElementById('topbarActions')
+    if (!menuToggle || !menuItems) return
+
+    function setOpen(open) {
+      menuItems.classList.toggle('is-open', open)
+      menuToggle.classList.toggle('is-open', open)
+      menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+    }
+
+    menuToggle.addEventListener('click', function (e) {
+      e.stopPropagation()
+      setOpen(!menuItems.classList.contains('is-open'))
+    })
+
+    // Clicking any action in the menu fires its existing handler, then
+    // closes the dropdown so the user is returned to a normal layout.
+    menuItems.addEventListener('click', function (e) {
+      if (e.target.closest('button')) {
+        // Defer close so the action's own click handler runs first
+        // before the dropdown collapses (and possibly unmounts a button).
+        setTimeout(function () { setOpen(false) }, 0)
+      }
+    })
+
+    // Dismiss when clicking elsewhere on the page or pressing Escape.
+    document.addEventListener('click', function (e) {
+      if (!menuItems.classList.contains('is-open')) return
+      if (menuToggle.contains(e.target) || menuItems.contains(e.target)) return
+      setOpen(false)
+    })
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && menuItems.classList.contains('is-open')) {
+        setOpen(false)
+      }
+    })
+  })()
 })()

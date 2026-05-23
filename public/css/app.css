@@ -246,6 +246,52 @@ a {
   padding: 14px 22px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+/* Inline group of action buttons that collapses into a dropdown on
+   narrow screens — see the mobile media query below. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* The icon-only/label-only swap is purely a mobile concern: on desktop
+   we render just the original glyph (label hidden), so the existing
+   layout is untouched. */
+.topbar-action-label {
+  display: none;
+}
+
+/* Hamburger trigger — hidden on desktop, shown via @media on mobile. */
+.topbar-menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--ease), border-color var(--ease), background var(--ease);
+}
+
+.topbar-menu-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: rgba(45, 212, 191, 0.1);
+}
+
+.topbar-menu-toggle.is-open {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: rgba(45, 212, 191, 0.15);
 }
 
 .room-back {
@@ -711,6 +757,56 @@ a {
   .room-share-btn {
     padding: 5px 10px;
     font-size: 0.88rem;
+  }
+
+  /* Show the hamburger and collapse the action group into a dropdown. */
+  .topbar-menu-toggle {
+    display: inline-flex;
+  }
+
+  .topbar-actions {
+    /* Absolutely positioned panel that drops down from the topbar. */
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 12px;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    min-width: 180px;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+    z-index: 50;
+  }
+
+  .topbar-actions.is-open {
+    display: flex;
+  }
+
+  /* Inside the dropdown, buttons are left-aligned with icon + label. */
+  .topbar-actions .room-share-btn,
+  .topbar-actions .room-delete-btn {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+    padding: 9px 12px;
+    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .topbar-actions .topbar-action-label {
+    display: inline;
+  }
+
+  .topbar-action-icon {
+    display: inline-flex;
+    width: 18px;
+    justify-content: center;
   }
 
   .controls {
@@ -1506,11 +1602,28 @@ a {
 .modal-card {
   width: 100%;
   max-width: 420px;
+  /* Cap height to viewport so taller modals (e.g. the edit form with its
+     emoji picker) scroll within the card instead of being clipped off
+     the bottom of the screen — that was making the picker widget look
+     like it wasn't rendered at all on shorter viewports. */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 26px;
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.7);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.modal-card::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-card::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
 }
 
 .modal-title {
@@ -1762,8 +1875,14 @@ a {
   left: 16px;
   z-index: 7;
   display: none;
+  /* Flow direction adapts to device orientation — see media queries
+     below. Default keeps the historical column layout. */
   flex-direction: column;
+  flex-wrap: wrap;
   gap: 6px;
+  /* In horizontal mode the tray sits beside the toggle, so cap its
+     width so it never runs off the right edge of the player. */
+  max-width: calc(100vw - 32px);
   background: rgba(26, 26, 26, 0.95);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1775,6 +1894,31 @@ a {
 
 .reaction-tray.is-open {
   display: flex;
+}
+
+/**
+ * Landscape: lay the emojis out in a horizontal row beside the toggle,
+ * so they don't stretch down past the bottom of a short viewport. The
+ * tray slides to the right of the toggle button.
+ */
+@media (orientation: landscape) {
+  .reaction-tray {
+    top: 70px;
+    left: 64px;
+    flex-direction: row;
+  }
+}
+
+/**
+ * Portrait: keep the historical vertical column dropping down below
+ * the toggle.
+ */
+@media (orientation: portrait) {
+  .reaction-tray {
+    top: 116px;
+    left: 16px;
+    flex-direction: column;
+  }
 }
 
 .reaction-btn {
