@@ -235,11 +235,13 @@
       if (video.paused) {
         var playPromise = video.play()
         if (playPromise && playPromise.catch) playPromise.catch(function () {})
-        emitControl('play', video.currentTime)
       } else {
         video.pause()
-        emitControl('pause', video.currentTime)
       }
+      /* No emit here — the `play`/`pause` event listeners below broadcast
+         the change. Routing every state flip through the video element
+         means PiP, OS media keys, headphone buttons, and any other path
+         that toggles playback also notifies the room. */
     })
 
     /** Seek to an absolute time, clamped to [0, duration], then broadcast it. */
@@ -298,12 +300,31 @@
       durTime.textContent = formatTime(video.duration)
     })
 
-    // Keep the play/pause button glyph in sync (UI only — never emits).
+    /**
+     * Authoritative play/pause/seek listeners — fire for ANY path that
+     * mutates the video (our custom button, the Picture-in-Picture
+     * window's controls, OS media keys, headset buttons, etc.). We
+     * broadcast the new state to the room unless we're currently
+     * applying a server sync ourselves, in which case `isSyncing` is
+     * raised and we skip the echo to avoid an infinite ping-pong.
+     */
     video.addEventListener('play', function () {
       playPause.textContent = '❚❚'
+      if (!isSyncing) emitControl('play', video.currentTime)
     })
     video.addEventListener('pause', function () {
       playPause.textContent = '▶'
+      if (!isSyncing) emitControl('pause', video.currentTime)
+    })
+    /**
+     * `seeked` fires once a seek lands. Local seeks via our seek bar /
+     * back10 / fwd10 already emit through `seekTo`, and they raise the
+     * sync guard so this listener stays quiet for those. What this
+     * listener catches is the PiP "skip backward/forward" controls and
+     * any media-session seek action.
+     */
+    video.addEventListener('seeked', function () {
+      if (!isSyncing) emitControl('seek', video.currentTime)
     })
 
     // The video file is missing or unplayable.
