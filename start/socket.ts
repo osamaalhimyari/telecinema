@@ -636,6 +636,43 @@ function registerHandlers(server: Server, socket: Socket) {
   })
 
   /**
+   * Explicit room exit. The web client leaves a room by unloading the page
+   * (which fires `disconnecting`), but a native client keeps one long-lived
+   * socket across screens — so it emits `leave_room` to drop its viewer slot
+   * without tearing the whole connection down. Additive: existing clients that
+   * never emit this are unaffected.
+   */
+  socket.on('leave_room', () => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || !socket.rooms.has(slug)) return
+
+    /* Close any in-flight voice burst for listeners. */
+    socket.to(slug).emit('voice_end', { id: socket.id })
+
+    removeRoomUser(slug, socket.id)
+    clearBuffering(slug, socket.id)
+    socket.leave(slug)
+    socket.data.roomSlug = undefined
+
+    const state = rooms.get(slug)
+    if (state) {
+      state.viewerCount = Math.max(0, state.viewerCount - 1)
+      if (state.viewerCount === 0) {
+        state.isPlaying = false
+        state.currentTime = 0
+        state.lastUpdated = Date.now()
+        state.playbackRate = 1
+        state.autoPausedForBuffering = false
+        roomChats.delete(slug)
+        roomBuffering.delete(slug)
+      }
+      broadcastViewerCount(server, slug, state.viewerCount)
+    }
+    if (rooms.has(slug)) broadcastRoomUsers(server, slug)
+    evaluateBufferGate(server, slug)
+  })
+
+  /**
    * `disconnecting` fires while `socket.rooms` is still populated, so we can
    * tell which room the socket was watching and decrement its count.
    */
