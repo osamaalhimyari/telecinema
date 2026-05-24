@@ -45,11 +45,18 @@ const shieldConfig = defineConfig({
      * Routes that should be excluded from CSRF protection.
      * Useful for webhooks or API endpoints that use other auth methods.
      */
-    exceptRoutes: [
-      '/room/:slug',
-      '/room/:slug/subtitle',
-      '/room/:slug/unlock',
-    ],
+    exceptRoutes: (ctx) => {
+      const pattern = ctx.route?.pattern ?? ''
+      // Existing XHR room routes, plus the entire stateless JSON API consumed
+      // by the Flutter client (it authenticates per-request, never via a
+      // session cookie, so the CSRF token flow does not apply to it).
+      return (
+        pattern === '/room/:slug' ||
+        pattern === '/room/:slug/subtitle' ||
+        pattern === '/room/:slug/unlock' ||
+        pattern.startsWith('/api/')
+      )
+    },
 
     /**
      * Enable XSRF-TOKEN cookie for JavaScript frameworks.

@@ -13,6 +13,7 @@ import router from '@adonisjs/core/services/router'
 
 const RoomsController = () => import('#controllers/rooms_controller')
 const VideosController = () => import('#controllers/videos_controller')
+const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -61,6 +62,33 @@ router.get('/video/:filename', [VideosController, 'stream']).as('videos.stream')
 router.post('/room/:slug/subtitle', [RoomsController, 'uploadSubtitle']).as('rooms.subtitle')
 router.put('/room/:slug', [RoomsController, 'update']).as('rooms.update')
 router.get('/subtitles/:filename', [RoomsController, 'streamSubtitle']).as('subtitles.stream')
+
+/*
+|--------------------------------------------------------------------------
+| JSON API — consumed by the Flutter watch-party client
+|--------------------------------------------------------------------------
+|
+| A thin, stateless mirror of the web room catalogue. The realtime watch
+| experience (sync, chat, presence, reactions, voice) runs over the same
+| Socket.io protocol as the web client; these routes only own the room
+| catalogue and lifecycle over HTTP. All are exempt from CSRF in
+| `config/shield.ts` (`/api/*`).
+*/
+router
+  .group(() => {
+    router.get('/rooms', [RoomsApiController, 'index']).as('api.rooms.index')
+    router.post('/rooms', [RoomsApiController, 'store']).as('api.rooms.store')
+    router
+      .get('/rooms/download/:jobId', [RoomsApiController, 'downloadProgress'])
+      .as('api.rooms.downloadProgress')
+    router.get('/rooms/:slug', [RoomsApiController, 'show']).as('api.rooms.show')
+    router.post('/rooms/:slug/unlock', [RoomsApiController, 'unlock']).as('api.rooms.unlock')
+    router.delete('/rooms/:slug', [RoomsApiController, 'destroy']).as('api.rooms.destroy')
+    router
+      .post('/rooms/:slug/subtitle', [RoomsApiController, 'uploadSubtitle'])
+      .as('api.rooms.subtitle')
+  })
+  .prefix('/api')
 
 /*
 |--------------------------------------------------------------------------
