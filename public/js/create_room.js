@@ -24,6 +24,7 @@
   var fileInput = document.getElementById('video')
   var videoUrlInput = document.getElementById('videoUrl')
   var externalUrlInput = document.getElementById('externalUrl')
+  var magnetInput = document.getElementById('magnet')
   var dropzone = document.getElementById('dropzone')
   var dropzoneText = document.getElementById('dropzoneText')
   var submitBtn = document.getElementById('submitBtn')
@@ -355,6 +356,11 @@
         showError('Please paste the embed link for the external stream.')
         return
       }
+    } else if (type === 'torrent') {
+      if (!magnetInput.value.trim()) {
+        showError('Please paste a magnet link.')
+        return
+      }
     } else if (type === 'download') {
       if (!videoUrlInput.value.trim()) {
         showError('Please paste a link to the video file.')
@@ -377,8 +383,11 @@
       submitBtn.textContent = 'Uploading…'
       progress.hidden = false
       renderProgress(0)
-    } else if (type === 'download') {
-      submitBtn.textContent = 'Starting…'
+    } else if (type === 'download' || type === 'torrent') {
+      // Both create the room from a background job and hand back a jobId to
+      // poll. Torrent rooms open as soon as peers/metadata are found, so the
+      // bar is indeterminate ("preparing the stream") rather than a byte count.
+      submitBtn.textContent = type === 'torrent' ? 'Preparing…' : 'Starting…'
       progress.hidden = false
       renderProgress(null, 0)
     } else {

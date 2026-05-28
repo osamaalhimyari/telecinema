@@ -4,6 +4,7 @@ import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
+import { startTorrentRoom, getTorrentJob, removeRoomTorrent } from '#services/torrent_streamer'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -127,7 +128,7 @@ export default class RoomsController {
    * the request is an AJAX request and as a flash + redirect otherwise.
    */
   async store({ request, response, session }: HttpContext) {
-    const { name, password, roomType, videoUrl, externalUrl, reactions } =
+    const { name, password, roomType, videoUrl, externalUrl, magnet, reactions } =
       await request.validateUsing(createRoomValidator)
     const wantsJson = request.ajax()
 
@@ -210,6 +211,29 @@ export default class RoomsController {
     }
 
     /**
+     * Torrent flow — like the download flow, the room is created by a
+     * background job (once swarm metadata arrives), and this request only
+     * hands back the `jobId` the browser polls. Playback then streams the
+     * file from the swarm via `/stream/:slug`.
+     */
+    if (roomType === 'torrent') {
+      if (!magnet) {
+        return fail('Please paste a magnet link.')
+      }
+      let jobId: string
+      try {
+        jobId = startTorrentRoom({ name, password: password ?? null, magnet, reactions: reactions ?? null })
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : 'That magnet link could not be used.')
+      }
+
+      if (wantsJson) {
+        return response.json({ jobId })
+      }
+      return fail('Creating a room from a magnet link requires JavaScript to be enabled.')
+    }
+
+    /**
      * Upload flow — the visitor supplied a file directly.
      */
     const video = request.file('video', { size: MAX_VIDEO_SIZE, extnames: VIDEO_EXTENSIONS })
@@ -280,7 +304,26 @@ export default class RoomsController {
    * at which point `redirectTo` points at it.
    */
   async downloadProgress({ params, response, session }: HttpContext) {
-    const job = getJob(String(params.jobId))
+    const jobId = String(params.jobId)
+
+    /**
+     * Torrent rooms share this poll. The job reaches `done` (with its slug)
+     * once swarm metadata is in and the room row exists; the poller then
+     * redirects to `/room/:slug`.
+     */
+    const torrentJob = getTorrentJob(jobId)
+    if (torrentJob) {
+      return response.json({
+        status: torrentJob.status,
+        percent: torrentJob.percent,
+        bytesDownloaded: torrentJob.bytesDownloaded,
+        totalBytes: torrentJob.totalBytes,
+        error: torrentJob.error,
+        redirectTo: torrentJob.slug ? `/room/${torrentJob.slug}` : null,
+      })
+    }
+
+    const job = getJob(jobId)
     if (!job) {
       return response
         .status(404)
@@ -439,7 +482,10 @@ export default class RoomsController {
      * video file at all, so that unlink is skipped — but they may still
      * own a subtitle file that needs the same treatment.
      */
-    if (room.videoFilename) {
+    if (room.roomType === 'torrent') {
+      /* Tear down the swarm and delete its cached pieces under storage/torrents. */
+      removeRoomTorrent(room)
+    } else if (room.videoFilename) {
       try {
         await unlink(app.makePath('storage/videos', basename(room.videoFilename)))
       } catch {

@@ -91,10 +91,13 @@
               <span class="subtitle-text" id="subtitleText"></span>
             </div>
           @else
+            {{-- Torrent rooms stream from the swarm via /stream/:slug (pieces
+                 fetched on demand); upload/download rooms serve a file on disk
+                 from /video/:filename. Both are range-supported <video> sources. --}}
             <video
               id="video"
               class="player-video"
-              src="/video/{{ room.videoFilename }}"
+              src="{{ room.roomType === 'torrent' ? '/stream/' + room.slug : '/video/' + room.videoFilename }}"
               preload="auto"
               playsinline
             ></video>
@@ -271,14 +274,22 @@
             </div>
           </div>
 
-          {{-- Shown when the video file is missing from storage/videos/ --}}
+          {{-- Shown when the source can't be played: a missing file for
+               upload/download rooms, or a torrent with no reachable peers. --}}
           <div class="player-overlay player-error" id="videoError">
             <div class="overlay-card">
               <div class="overlay-icon">⚠</div>
-              <div class="overlay-title">Video file not found</div>
-              <div class="overlay-sub">
-                Add <code>{{ room.videoFilename }}</code> to <code>storage/videos/</code>.
-              </div>
+              @if(room.roomType === 'torrent')
+                <div class="overlay-title">Stream unavailable</div>
+                <div class="overlay-sub">
+                  Couldn't reach the torrent swarm. It may have no seeders right now — try again shortly.
+                </div>
+              @else
+                <div class="overlay-title">Video file not found</div>
+                <div class="overlay-sub">
+                  Add <code>{{ room.videoFilename }}</code> to <code>storage/videos/</code>.
+                </div>
+              @end
             </div>
           </div>
         @end
