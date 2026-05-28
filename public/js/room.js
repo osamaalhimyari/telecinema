@@ -442,12 +442,58 @@
       })
     })()
 
-    // The video file is missing or unplayable.
+    // Torrent rooms stream from the swarm via the server (/stream/:slug), which
+    // can briefly answer 503 while it finds seeders / fetches metadata. Rather
+    // than flashing "video not found" on that transient state (the file path
+    // can't recover), show a "preparing" overlay and retry the stream for up to
+    // ~90s (the server's metadata window) before giving up. Upload/download
+    // rooms have no preparing overlay, so they fail fast as before.
+    var videoPreparing = document.getElementById('videoPreparing')
+    var isTorrentRoom = !!videoPreparing
+    var torrentTries = 0
+    var TORRENT_MAX_TRIES = 18
+    var torrentRetryTimer = null
+
+    function showPreparing() {
+      if (videoPreparing) videoPreparing.classList.add('is-visible')
+    }
+    function hidePreparing() {
+      if (videoPreparing) videoPreparing.classList.remove('is-visible')
+    }
+
+    // Show the preparing state immediately on a torrent room until the first
+    // frame is ready.
+    if (isTorrentRoom) showPreparing()
+
     video.addEventListener('error', function () {
+      if (isTorrentRoom && torrentTries < TORRENT_MAX_TRIES) {
+        torrentTries += 1
+        videoError.classList.remove('is-visible')
+        showPreparing()
+        if (torrentRetryTimer) clearTimeout(torrentRetryTimer)
+        torrentRetryTimer = setTimeout(function () {
+          var base = (video.getAttribute('src') || '').split('?')[0]
+          if (!base) return
+          // Cache-bust so the browser re-requests instead of replaying the
+          // failed 503 response.
+          video.src = base + '?t=' + Date.now()
+          video.load()
+          var p = video.play()
+          if (p && p.catch) p.catch(function () {})
+        }, 5000)
+        return
+      }
+      hidePreparing()
       videoError.classList.add('is-visible')
     })
     video.addEventListener('canplay', function () {
       videoError.classList.remove('is-visible')
+      hidePreparing()
+      torrentTries = 0
+      if (torrentRetryTimer) {
+        clearTimeout(torrentRetryTimer)
+        torrentRetryTimer = null
+      }
     })
 
     /* ----------------------------------------------------------------------

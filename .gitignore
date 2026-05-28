@@ -29,3 +29,11 @@ yarn-error.log
 storage/videos/*
 !storage/videos/README.md
 !storage/videos/.gitkeep
+
+# Torrent cache — never commit the large video files (subtitles/posters are fine)
+storage/torrents/**/*.mp4
+storage/torrents/**/*.mkv
+storage/torrents/**/*.avi
+storage/torrents/**/*.webm
+storage/torrents/**/*.m4v
+storage/torrents/**/*.mov

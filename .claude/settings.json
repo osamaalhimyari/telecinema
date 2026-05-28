@@ -8,7 +8,13 @@
       "Bash(\"/c/xampp/mysql/bin/mysql.exe\" -u root -e \"CREATE DATABASE IF NOT EXISTS watch_party CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; SHOW DATABASES LIKE 'watch_party';\")",
       "Bash(ls \"/c/xampp/mysql/bin/mysqld.exe\" && echo \"found mysqld\")",
       "Read(//c/xampp/mysql/bin/**)",
-      "Bash(./mysqld.exe --standalone)"
+      "Bash(./mysqld.exe --standalone)",
+      "Bash(xargs -d '\\\\n' du -h)",
+      "Bash(awk '/^blob/ {print $3, $4}')",
+      "Bash(git rev-list *)",
+      "Bash(git filter-repo *)",
+      "Bash(git reset *)",
+      "Bash(xargs -d '\\\\n' -I{} sh -c 'test -f \"{}\" && find \"{}\" -size +50M')"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public"

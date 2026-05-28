@@ -274,6 +274,22 @@
             </div>
           </div>
 
+          @if(room.roomType === 'torrent')
+            {{-- Torrent bytes come from the swarm via the server. While it warms
+                 up (finding seeders / fetching metadata) we show this and retry
+                 the stream, instead of flashing the error overlay. Mirrors the
+                 mobile app's "preparing torrent" state. --}}
+            <div class="player-overlay player-error" id="videoPreparing">
+              <div class="overlay-card">
+                <div class="overlay-icon">⏳</div>
+                <div class="overlay-title">Preparing stream…</div>
+                <div class="overlay-sub">
+                  Finding sources in the swarm — this can take a moment.
+                </div>
+              </div>
+            </div>
+          @end
+
           {{-- Shown when the source can't be played: a missing file for
                upload/download rooms, or a torrent with no reachable peers. --}}
           <div class="player-overlay player-error" id="videoError">
