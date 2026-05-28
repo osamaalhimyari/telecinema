@@ -1,7 +1,7 @@
 import vine from '@vinejs/vine'
 
 /**
- * Validator for the "Create room" form. A room's video arrives one of three
+ * Validator for the "Create room" form. A room's video arrives one of four
  * ways, picked through `roomType`:
  *
  *   - `upload`   — an uploaded file (validated separately in the controller
@@ -9,6 +9,7 @@ import vine from '@vinejs/vine'
  *   - `download` — a `videoUrl` the server downloads itself
  *   - `external` — an `externalUrl` rendered as an embed, with no video of
  *                  our own
+ *   - `torrent`  — a `magnet` URI the server streams from a BitTorrent swarm
  *
  * The "matching field is present" rule is enforced in the controller — Vine
  * cannot see the uploaded file, so all source-related fields stay optional
@@ -20,8 +21,9 @@ import vine from '@vinejs/vine'
 export const createRoomValidator = vine.create({
   name: vine.string().minLength(2).maxLength(80),
   password: vine.string().minLength(4).maxLength(64).nullable().optional(),
-  roomType: vine.enum(['upload', 'download', 'external']),
+  roomType: vine.enum(['upload', 'download', 'external', 'torrent']),
   videoUrl: vine.string().trim().maxLength(2048).nullable().optional(),
   externalUrl: vine.string().trim().url().maxLength(2048).nullable().optional(),
+  magnet: vine.string().trim().maxLength(8192).nullable().optional(),
   reactions: vine.string().nullable().optional(),
 })

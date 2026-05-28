@@ -25,17 +25,26 @@ export default class Room extends BaseModel {
   /**
    * Source of the room's video. `upload` and `download` both end up as a
    * file under `storage/videos/`; `external` is an embed URL rendered as an
-   * iframe and never touches our own storage.
+   * iframe; `torrent` streams a file out of a BitTorrent swarm (via WebTorrent)
+   * served over `/stream/:slug`, downloading pieces on demand.
    */
   @column()
-  declare roomType: 'upload' | 'download' | 'external'
+  declare roomType: 'upload' | 'download' | 'external' | 'torrent'
 
   /**
    * Embed URL for `external` rooms — the third-party player iframe shown in
-   * place of our own `<video>` element. Null for upload/download rooms.
+   * place of our own `<video>` element. Null for upload/download/torrent rooms.
    */
   @column()
   declare externalUrl: string | null
+
+  /**
+   * Magnet URI for `torrent` rooms — the source swarm the server streams from.
+   * Never serialized: clients stream through `/stream/:slug` and never need the
+   * raw magnet. Null for every other room type.
+   */
+  @column({ serializeAs: null })
+  declare magnet: string | null
 
   /**
    * Filename of an uploaded subtitle file (SRT/VTT) for external rooms.

@@ -51,9 +51,11 @@ router.post('/room/:slug/unlock', [RoomsController, 'unlock']).as('rooms.unlock'
 router.post('/room/:slug/delete', [RoomsController, 'destroy']).as('rooms.destroy')
 
 /**
- * Video streaming endpoint with HTTP range-request support.
+ * Video streaming endpoints with HTTP range-request support — one for files on
+ * disk (upload/download rooms), one that streams a torrent room's swarm.
  */
 router.get('/video/:filename', [VideosController, 'stream']).as('videos.stream')
+router.get('/stream/:slug', [VideosController, 'streamTorrent']).as('videos.streamTorrent')
 
 /**
  * Subtitle endpoints — upload an .srt/.vtt for an external room, and serve

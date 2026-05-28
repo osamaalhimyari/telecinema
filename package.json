@@ -70,7 +70,8 @@
     "edge.js": "^6.5.0",
     "luxon": "^3.7.2",
     "reflect-metadata": "^0.2.2",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "webtorrent": "^3.0.13"
   },
   "hotHook": {
     "boundaries": [

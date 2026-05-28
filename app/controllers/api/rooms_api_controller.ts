@@ -4,6 +4,7 @@ import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
+import { startTorrentRoom, getTorrentJob, removeRoomTorrent } from '#services/torrent_streamer'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -97,7 +98,7 @@ export default class RoomsApiController {
    *   - `upload`   → multipart video file; returns the created room.
    */
   async store({ request, response }: HttpContext) {
-    const { name, password, roomType, videoUrl, externalUrl, reactions } =
+    const { name, password, roomType, videoUrl, externalUrl, magnet, reactions } =
       await request.validateUsing(createRoomValidator)
 
     const fail = (message: string, status = 422) =>
@@ -147,6 +148,22 @@ export default class RoomsApiController {
       }
     }
 
+    // ---- magnet / torrent stream ---------------------------------------
+    if (roomType === 'torrent') {
+      if (!magnet) return fail('Please paste a magnet link.')
+      try {
+        const jobId = startTorrentRoom({
+          name,
+          password: password ?? null,
+          magnet,
+          reactions: reactions ?? null,
+        })
+        return response.json({ success: true, data: { jobId } })
+      } catch (error) {
+        return fail(error instanceof Error ? error.message : 'torrent_invalid_magnet')
+      }
+    }
+
     // ---- direct upload --------------------------------------------------
     const video = request.file('video', { size: MAX_VIDEO_SIZE, extnames: VIDEO_EXTENSIONS })
     if (!video) return fail('Please choose a video file to upload.')
@@ -181,7 +198,29 @@ export default class RoomsApiController {
    * Once `status` is `done`, `slug` points at the finished room.
    */
   async downloadProgress({ params, response }: HttpContext) {
-    const job = getJob(String(params.jobId))
+    const jobId = String(params.jobId)
+
+    /**
+     * A torrent room shares this poll: it reaches `done` (with its slug) once
+     * the swarm metadata is in and the room row exists — playback streams from
+     * there, so there is no download bar to wait on.
+     */
+    const torrentJob = getTorrentJob(jobId)
+    if (torrentJob) {
+      return response.json({
+        success: true,
+        data: {
+          status: torrentJob.status,
+          percent: torrentJob.percent,
+          bytesDownloaded: torrentJob.bytesDownloaded,
+          totalBytes: torrentJob.totalBytes,
+          error: torrentJob.error,
+          slug: torrentJob.slug,
+        },
+      })
+    }
+
+    const job = getJob(jobId)
     if (!job) {
       return response
         .status(404)
@@ -224,7 +263,10 @@ export default class RoomsApiController {
       return response.status(409).json({ success: false, message: 'room_not_empty' })
     }
 
-    if (room.videoFilename) {
+    if (room.roomType === 'torrent') {
+      /** Tear down the swarm and delete its cached pieces under storage/torrents. */
+      removeRoomTorrent(room)
+    } else if (room.videoFilename) {
       try {
         await unlink(app.makePath('storage/videos', basename(room.videoFilename)))
       } catch {
