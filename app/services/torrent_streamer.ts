@@ -20,9 +20,13 @@
 import { mkdir } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import WebTorrent, { type Torrent, type TorrentFile } from 'webtorrent'
+// Type-only imports — fully erased at build, so they never load the webtorrent
+// runtime. The actual module is pulled in lazily via `await import()` below.
+import type WebTorrent from 'webtorrent'
+import type { Torrent, TorrentFile } from 'webtorrent'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
+import logger from '@adonisjs/core/services/logger'
 import Room from '#models/room'
 
 /** Containers libmpv (the Flutter player) can stream — wider than browsers. */
@@ -65,18 +69,57 @@ export function getTorrentJob(jobId: string): TorrentJob | undefined {
 }
 
 /**
- * One process-wide WebTorrent client, created lazily so importing this module
- * never spins up networking until a torrent is actually needed.
+ * One process-wide WebTorrent client, created lazily via a *dynamic* import.
+ *
+ * The room controllers import this module, so a static `import 'webtorrent'`
+ * would load the whole BitTorrent runtime at boot — and if it failed to load on
+ * a given host, it would take down *all* room routes with it. Importing it only
+ * when a torrent is actually needed means a webtorrent problem can never break
+ * normal (upload/download/external) rooms.
  */
 let client: WebTorrent | null = null
-function getClient(): WebTorrent {
+async function getClient(): Promise<WebTorrent> {
   if (!client) {
-    client = new WebTorrent()
+    installCrashGuards()
+    const { default: WebTorrentCtor } = await import('webtorrent')
+    client = new WebTorrentCtor()
     client.on('error', () => {
       /* swallow client-level errors; per-torrent errors are handled inline */
     })
   }
   return client
+}
+
+/**
+ * WebTorrent can throw from its own internal timers/microtasks (piece
+ * bookkeeping races), which surface as `uncaughtException` and would otherwise
+ * kill the whole Node process — taking every room down with it. Installed once,
+ * only when a torrent is first used: swallow + log errors that originate inside
+ * webtorrent, and let everything else crash the process as normal so real bugs
+ * are never hidden.
+ */
+let crashGuardsInstalled = false
+function installCrashGuards(): void {
+  if (crashGuardsInstalled) return
+  crashGuardsInstalled = true
+
+  const fromWebtorrent = (e: unknown): boolean =>
+    e instanceof Error && typeof e.stack === 'string' && e.stack.includes('webtorrent')
+
+  process.on('uncaughtException', (err) => {
+    if (fromWebtorrent(err)) {
+      logger.error({ err }, '[torrent] swallowed WebTorrent uncaught exception')
+      return
+    }
+    throw err
+  })
+  process.on('unhandledRejection', (reason) => {
+    if (fromWebtorrent(reason)) {
+      logger.error({ err: reason }, '[torrent] swallowed WebTorrent unhandled rejection')
+      return
+    }
+    throw reason
+  })
 }
 
 /** Added torrents, keyed by their (normalized) magnet — the swarm's identity. */
@@ -105,21 +148,6 @@ function pickVideoFile(torrent: Torrent): TorrentFile | null {
 }
 
 /**
- * Narrows the torrent's download to just the chosen video file, so sample
- * clips and `.nfo` files in the same swarm never waste bandwidth. Best-effort —
- * never lets a selection hiccup break streaming.
- */
-function selectOnlyVideo(torrent: Torrent): void {
-  try {
-    const file = pickVideoFile(torrent)
-    for (const f of torrent.files) f.deselect()
-    file?.select()
-  } catch {
-    /* selection API drift across versions — fall back to downloading all */
-  }
-}
-
-/**
  * Adds a magnet to the client and resolves once metadata is ready. Concurrent
  * adds of the same magnet share one torrent, and ready torrents are reused.
  */
@@ -130,36 +158,49 @@ function ensureTorrent(magnet: string): Promise<Torrent> {
   const inflight = pending.get(magnet)
   if (inflight) return inflight
 
-  const promise = new Promise<Torrent>((resolve, reject) => {
-    let settled = false
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      reject(new Error(ERR_TIMEOUT))
-    }, METADATA_TIMEOUT_MS)
-    timer.unref()
+  const promise = (async (): Promise<Torrent> => {
+    const wt = await getClient()
+    return new Promise<Torrent>((resolve, reject) => {
+      let settled = false
+      let torrent: Torrent | null = null
 
-    try {
-      const torrent = getClient().add(magnet, { path: app.makePath('storage/torrents') }, (ready) => {
+      // On any failure, destroy the half-added torrent. Otherwise a magnet that
+      // times out stays registered in the client by its info hash, and every
+      // later attempt at the same content fails instantly as a duplicate.
+      const finish = (err: Error | null, ready?: Torrent) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        selectOnlyVideo(ready)
-        resolve(ready)
-      })
-      torrent.on('error', (err) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        reject(err instanceof Error ? err : new Error(String(err)))
-      })
-    } catch (err) {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      reject(err instanceof Error ? err : new Error(ERR_FAILED))
-    }
-  })
+        if (err) {
+          if (torrent) {
+            try {
+              torrent.destroy()
+            } catch {
+              /* already torn down */
+            }
+          }
+          reject(err)
+        } else {
+          resolve(ready as Torrent)
+        }
+      }
+
+      const timer = setTimeout(() => finish(new Error(ERR_TIMEOUT)), METADATA_TIMEOUT_MS)
+      timer.unref()
+
+      try {
+        // NOTE: we deliberately do NOT deselect the other files. Calling
+        // `file.deselect()` / `select()` here triggers a known WebTorrent crash
+        // (`Cannot read properties of null (reading 'reserve')` thrown from a
+        // microtask, which would take the whole process down). `createReadStream`
+        // already prioritizes the requested byte range on its own.
+        torrent = wt.add(magnet, { path: app.makePath('storage/torrents') }, (ready) => finish(null, ready))
+        torrent.on('error', (err) => finish(err instanceof Error ? err : new Error(String(err))))
+      } catch (err) {
+        finish(err instanceof Error ? err : new Error(ERR_FAILED))
+      }
+    })
+  })()
 
   const tracked = promise.then(
     (torrent) => {
@@ -315,10 +356,12 @@ export function removeRoomTorrent(room: Room): void {
     return
   }
   const torrent = active.get(magnet)
-  if (!torrent) return
+  // If the torrent is in `active`, the client was already created — no need to
+  // (re)initialize it here just to remove something.
+  if (!torrent || !client) return
   active.delete(magnet)
   try {
-    getClient().remove(torrent, { destroyStore: true })
+    client.remove(torrent, { destroyStore: true })
   } catch {
     /* already gone */
   }

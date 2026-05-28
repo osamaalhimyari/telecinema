@@ -313,12 +313,20 @@ export default class RoomsController {
      */
     const torrentJob = getTorrentJob(jobId)
     if (torrentJob) {
+      /** Turn the service's stable error keys into readable text for the web UI. */
+      const torrentErrorText: Record<string, string> = {
+        torrent_invalid_magnet: 'That does not look like a valid magnet link.',
+        torrent_timeout:
+          'Could not reach any peers for that magnet — it may have no seeders right now, or this server cannot make outbound BitTorrent connections.',
+        torrent_no_video: 'No playable video was found in that torrent.',
+        torrent_failed: 'That torrent could not be opened.',
+      }
       return response.json({
         status: torrentJob.status,
         percent: torrentJob.percent,
         bytesDownloaded: torrentJob.bytesDownloaded,
         totalBytes: torrentJob.totalBytes,
-        error: torrentJob.error,
+        error: torrentJob.error ? (torrentErrorText[torrentJob.error] ?? torrentJob.error) : null,
         redirectTo: torrentJob.slug ? `/room/${torrentJob.slug}` : null,
       })
     }

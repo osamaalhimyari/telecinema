@@ -4,6 +4,9 @@
  */
 
 export const controllers = {
+  api: {
+    RoomsApi: () => import('#controllers/api/rooms_api_controller'),
+  },
   NewAccount: () => import('#controllers/new_account_controller'),
   Rooms: () => import('#controllers/rooms_controller'),
   Session: () => import('#controllers/session_controller'),

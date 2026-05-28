@@ -12,9 +12,17 @@ export type ScannedRoutes = {
     'rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'videos.streamTorrent': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.update': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'api.rooms.index': { paramsTuple?: []; params?: {} }
+    'api.rooms.store': { paramsTuple?: []; params?: {} }
+    'api.rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
+    'api.rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'api.rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'api.rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'api.rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'new_account.store': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
@@ -27,7 +35,11 @@ export type ScannedRoutes = {
     'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'videos.streamTorrent': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'api.rooms.index': { paramsTuple?: []; params?: {} }
+    'api.rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
+    'api.rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
   }
@@ -37,7 +49,11 @@ export type ScannedRoutes = {
     'rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
     'rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'videos.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'videos.streamTorrent': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'subtitles.stream': { paramsTuple: [ParamValue]; params: {'filename': ParamValue} }
+    'api.rooms.index': { paramsTuple?: []; params?: {} }
+    'api.rooms.downloadProgress': { paramsTuple: [ParamValue]; params: {'jobId': ParamValue} }
+    'api.rooms.show': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'new_account.create': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
   }
@@ -46,12 +62,18 @@ export type ScannedRoutes = {
     'rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'api.rooms.store': { paramsTuple?: []; params?: {} }
+    'api.rooms.unlock': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+    'api.rooms.subtitle': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
     'new_account.store': { paramsTuple?: []; params?: {} }
     'session.store': { paramsTuple?: []; params?: {} }
     'session.destroy': { paramsTuple?: []; params?: {} }
   }
   PUT: {
     'rooms.update': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
+  }
+  DELETE: {
+    'api.rooms.destroy': { paramsTuple: [ParamValue]; params: {'slug': ParamValue} }
   }
 }
 declare module '@adonisjs/core/types/http' {
