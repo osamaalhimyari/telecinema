@@ -120,4 +120,16 @@ export default class Room extends BaseModel {
   get hasPassword(): boolean {
     return this.passwordHash !== null && this.passwordHash !== ''
   }
+
+  /**
+   * Magnet URI, exposed to clients ONLY for torrent rooms. The app streams
+   * torrents on-device (each client adds this magnet to its own embedded
+   * engine) rather than through the server, so unlike the raw `magnet` column
+   * (serializeAs: null) this computed value is sent in API responses. Null for
+   * every non-torrent room.
+   */
+  @computed()
+  get magnetUri(): string | null {
+    return this.roomType === 'torrent' ? this.magnet : null
+  }
 }

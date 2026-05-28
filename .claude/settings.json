@@ -4,7 +4,11 @@
       "Bash(cd \"c:\\\\xampp\\\\htdocs\\\\projects\\\\mine\\\\watch-party\" && mkdir -p public/css public/js public/thumbnails storage/videos database/seeders providers && echo \"dirs created\" && ls -d public/css public/js public/thumbnails storage/videos database/seeders providers)",
       "Bash(node ace *)",
       "Bash(npx tsc *)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(\"/c/xampp/mysql/bin/mysql.exe\" -u root -e \"CREATE DATABASE IF NOT EXISTS watch_party CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; SHOW DATABASES LIKE 'watch_party';\")",
+      "Bash(ls \"/c/xampp/mysql/bin/mysqld.exe\" && echo \"found mysqld\")",
+      "Read(//c/xampp/mysql/bin/**)",
+      "Bash(./mysqld.exe --standalone)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public"
