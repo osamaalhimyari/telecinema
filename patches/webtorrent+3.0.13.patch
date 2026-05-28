@@ -1,0 +1,28 @@
+diff --git a/node_modules/webtorrent/lib/torrent.js b/node_modules/webtorrent/lib/torrent.js
+index 771a87f..43d62b6 100644
+--- a/node_modules/webtorrent/lib/torrent.js
++++ b/node_modules/webtorrent/lib/torrent.js
+@@ -1702,7 +1702,12 @@ export default class Torrent extends EventEmitter {
+       return index => {
+         if (!tries || self.bitfield.get(index)) return true
+ 
+-        let missing = self.pieces[index].missing
++        // A piece can momentarily be null (cleared during async sha1
++        // verification) while its bitfield bit is not yet set. Skip it instead
++        // of dereferencing null, which otherwise throws from createReadStream.
++        const piece = self.pieces[index]
++        if (!piece) return true
++        let missing = piece.missing
+ 
+         for (; ptr < self.wires.length; ptr++) {
+           const otherWire = self.wires[ptr]
+@@ -1938,6 +1943,9 @@ export default class Torrent extends EventEmitter {
+     // var endGame = (wire.requests.length === 0 && self.store.numMissing < 30)
+ 
+     const piece = self.pieces[index]
++    // Same null-piece race guard as in speedRanker: a piece briefly cleared
++    // during async verification must not crash an in-flight request.
++    if (!piece) return false
+     let reservation = isWebSeed ? piece.reserveRemaining() : piece.reserve()
+ 
+     if (reservation === -1 && hotswap && self._hotswap(wire, index)) {
