@@ -128,7 +128,7 @@ export default class RoomsController {
    * the request is an AJAX request and as a flash + redirect otherwise.
    */
   async store({ request, response, session }: HttpContext) {
-    const { name, password, roomType, videoUrl, magnet, reactions } =
+    const { name, password, roomType, videoUrl, magnet, reactions, category } =
       await request.validateUsing(createRoomValidator)
     const wantsJson = request.ajax()
 
@@ -149,7 +149,7 @@ export default class RoomsController {
       }
       let jobId: string
       try {
-        jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl, reactions: reactions ?? null })
+        jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl, reactions: reactions ?? null, category: category ?? null })
       } catch (error) {
         return fail(error instanceof Error ? error.message : 'That link could not be used.')
       }
@@ -172,7 +172,7 @@ export default class RoomsController {
       }
       let jobId: string
       try {
-        jobId = startTorrentRoom({ name, password: password ?? null, magnet, reactions: reactions ?? null })
+        jobId = startTorrentRoom({ name, password: password ?? null, magnet, reactions: reactions ?? null, category: category ?? null })
       } catch (error) {
         return fail(error instanceof Error ? error.message : 'That magnet link could not be used.')
       }
@@ -228,6 +228,7 @@ export default class RoomsController {
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
       reactions: reactions ?? null,
+      category: category ?? null,
     })
 
     /**
@@ -466,20 +467,16 @@ export default class RoomsController {
   }
 
   /**
-   * Uploads a subtitle file (SRT or VTT) for an external room. Cross-origin
-   * embeds cannot host their own text tracks, so we keep the file ourselves
-   * and the client renders an overlay on top of the iframe — driven by the
-   * room's virtual playhead. Replaces any previous subtitle.
+   * Uploads a subtitle file (SRT or VTT) for a room. The file is stored
+   * server-side and served from `/subtitles/:filename`: file rooms load it as
+   * an external subtitle track, while legacy external rooms render it as an
+   * overlay on the iframe (cross-origin embeds cannot host their own
+   * `<track>`). Replaces any previous subtitle.
    */
   async uploadSubtitle({ params, request, response }: HttpContext) {
     const room = await Room.findBy('slug', params.slug)
     if (!room) {
       return response.status(404).json({ error: 'That room no longer exists.' })
-    }
-    if (room.roomType !== 'external') {
-      return response
-        .status(400)
-        .json({ error: 'Subtitles are only available for external (embed) rooms.' })
     }
 
     const subtitle = request.file('subtitle', {

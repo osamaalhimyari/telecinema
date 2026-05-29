@@ -98,7 +98,7 @@ export default class RoomsApiController {
    *   - `upload`   → multipart video file; returns the created room.
    */
   async store({ request, response }: HttpContext) {
-    const { name, password, roomType, videoUrl, magnet, reactions } =
+    const { name, password, roomType, videoUrl, magnet, reactions, category } =
       await request.validateUsing(createRoomValidator)
 
     const fail = (message: string, status = 422) =>
@@ -113,6 +113,7 @@ export default class RoomsApiController {
           password: password ?? null,
           url: videoUrl,
           reactions: reactions ?? null,
+          category: category ?? null,
         })
         return response.json({ success: true, data: { jobId } })
       } catch (error) {
@@ -129,6 +130,7 @@ export default class RoomsApiController {
           password: password ?? null,
           magnet,
           reactions: reactions ?? null,
+          category: category ?? null,
         })
         return response.json({ success: true, data: { jobId } })
       } catch (error) {
@@ -160,6 +162,7 @@ export default class RoomsApiController {
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
       reactions: reactions ?? null,
+      category: category ?? null,
     })
     return response.json({ success: true, data: { room: this.serialize(room) } })
   }
@@ -258,18 +261,15 @@ export default class RoomsApiController {
   }
 
   /**
-   * POST /api/rooms/:slug/subtitle — upload an SRT/VTT for an external room.
-   * Replaces any previous subtitle and notifies the room over the socket.
+   * POST /api/rooms/:slug/subtitle — upload an SRT/VTT for a room. Works for
+   * every room type: file rooms load it as an external subtitle track, legacy
+   * external rooms render it as an overlay. Replaces any previous subtitle and
+   * notifies the room over the socket.
    */
   async uploadSubtitle({ params, request, response }: HttpContext) {
     const room = await Room.findBy('slug', params.slug)
     if (!room) {
       return response.status(404).json({ success: false, message: 'room_not_found' })
-    }
-    if (room.roomType !== 'external') {
-      return response
-        .status(400)
-        .json({ success: false, message: 'subtitles_external_only' })
     }
 
     const subtitle = request.file('subtitle', {

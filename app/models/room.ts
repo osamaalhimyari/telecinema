@@ -52,9 +52,10 @@ export default class Room extends BaseModel {
   declare magnet: string | null
 
   /**
-   * Filename of an uploaded subtitle file (SRT/VTT) for external rooms.
-   * Stored under `storage/subtitles/` and rendered as our own overlay on
-   * top of the iframe, since cross-origin embeds cannot host a `<track>`.
+   * Filename of an uploaded subtitle file (SRT/VTT) for a room. Stored under
+   * `storage/subtitles/` and served via `/subtitles/:filename`. File rooms
+   * load it as an external subtitle track; legacy external rooms render it as
+   * an overlay on the iframe (cross-origin embeds cannot host a `<track>`).
    */
   @column()
   declare subtitleFilename: string | null

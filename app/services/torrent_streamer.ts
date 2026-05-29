@@ -255,7 +255,8 @@ async function runTorrentRoom(
   magnet: string,
   name: string,
   password: string | null,
-  reactions: string | null
+  reactions: string | null,
+  category: string | null
 ): Promise<void> {
   const job = torrentJobs.get(jobId)
   if (!job) return
@@ -281,6 +282,7 @@ async function runTorrentRoom(
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
       reactions: reactions ?? null,
+      category: category ?? null,
     })
 
     job.status = 'done'
@@ -306,6 +308,7 @@ export function startTorrentRoom(opts: {
   password: string | null
   magnet: string
   reactions?: string | null
+  category?: string | null
 }): string {
   const magnet = normalizeMagnet(opts.magnet)
   const jobId = randomUUID()
@@ -321,7 +324,7 @@ export function startTorrentRoom(opts: {
   })
 
   /** Detached on purpose: progress is observed via `getTorrentJob`. */
-  void runTorrentRoom(jobId, magnet, opts.name, opts.password, opts.reactions ?? null)
+  void runTorrentRoom(jobId, magnet, opts.name, opts.password, opts.reactions ?? null, opts.category ?? null)
 
   return jobId
 }

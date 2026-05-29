@@ -23,4 +23,5 @@ export const createRoomValidator = vine.create({
   videoUrl: vine.string().trim().maxLength(2048).nullable().optional(),
   magnet: vine.string().trim().maxLength(8192).nullable().optional(),
   reactions: vine.string().nullable().optional(),
+  category: vine.string().trim().maxLength(40).nullable().optional(),
 })

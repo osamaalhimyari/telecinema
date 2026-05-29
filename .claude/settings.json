@@ -14,10 +14,30 @@
       "Bash(git rev-list *)",
       "Bash(git filter-repo *)",
       "Bash(git reset *)",
-      "Bash(xargs -d '\\\\n' -I{} sh -c 'test -f \"{}\" && find \"{}\" -size +50M')"
+      "Bash(xargs -d '\\\\n' -I{} sh -c 'test -f \"{}\" && find \"{}\" -size +50M')",
+      "Read(//c/xampp/htdocs/projects/mine/**)",
+      "Bash(ls lib *)",
+      "Bash(ls lib/features)",
+      "Bash(ls lib/core)",
+      "Bash(find lib/features/watch -type f)",
+      "Bash(find lib/features/rooms -type f)",
+      "Bash(git -C /c/xampp/htdocs/projects/mine/watch_aprty_app status --short)",
+      "Bash(git -C /c/xampp/htdocs/projects/mine/watch_aprty_app rev-parse --show-toplevel)",
+      "Bash(git -C /c/xampp/htdocs/projects/mine/watch-party status --short)",
+      "Bash(git -C /c/xampp/htdocs/projects/mine/watch-party diff --stat)",
+      "Bash(git -C /c/xampp/htdocs/projects/mine/watch_aprty_app diff --stat)"
     ],
     "additionalDirectories": [
-      "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public"
+      "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\features\\rooms\\domain\\entities",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\features\\rooms\\data\\datasources",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\features\\rooms\\presentation\\pages",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\core\\constants",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\core\\localization",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\logic\\storage",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\logic\\favorites",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib\\injections",
+      "c:\\xampp\\htdocs\\projects\\mine\\watch_aprty_app\\lib"
     ]
   }
 }
