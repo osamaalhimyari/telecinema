@@ -25,7 +25,20 @@
       "Bash(git -C /c/xampp/htdocs/projects/mine/watch_aprty_app rev-parse --show-toplevel)",
       "Bash(git -C /c/xampp/htdocs/projects/mine/watch-party status --short)",
       "Bash(git -C /c/xampp/htdocs/projects/mine/watch-party diff --stat)",
-      "Bash(git -C /c/xampp/htdocs/projects/mine/watch_aprty_app diff --stat)"
+      "Bash(git -C /c/xampp/htdocs/projects/mine/watch_aprty_app diff --stat)",
+      "Bash(ls -la web.config render.yaml Procfile Dockerfile .deployment deploy.cmd ecosystem.config.js)",
+      "Bash(ls config/)",
+      "Bash(ls *.sln *.csproj)",
+      "Bash(ls node_modules/better-sqlite3/prebuilds/)",
+      "Bash(ls node_modules/better-sqlite3/build/Release/*.node)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.dependencies,null,2\\)\\)\")",
+      "Bash(npm i *)",
+      "Bash(node -e \"console.log\\('mysql2:', require\\('./package.json'\\).dependencies.mysql2\\)\")",
+      "PowerShell(Test-NetConnection -ComputerName db53926.databaseasp.net -Port 3306 -InformationLevel Detailed -WarningAction SilentlyContinue)",
+      "Bash(node -e ' *)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(DB_CONNECTION=mysql DB_HOST=db53926.public.databaseasp.net DB_PORT=3306 DB_DATABASE=db53926 DB_USER=db53926 DB_PASSWORD='jZ@29=pLf3A%' node ace migration:run --force)",
+      "Bash(DB_CONNECTION=mysql DB_HOST=db53926.public.databaseasp.net DB_PORT=3306 DB_DATABASE=db53926 DB_USER=db53926 DB_PASSWORD='jZ@29=pLf3A%' node ace db:seed)"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public",
