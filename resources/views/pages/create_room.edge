@@ -52,14 +52,6 @@
                 </span>
               </label>
               <label class="type-option">
-                <input type="radio" name="roomType" value="external" />
-                <span class="type-option-card">
-                  <span class="type-option-icon" aria-hidden="true">⇱</span>
-                  <span class="type-option-title">Stream from outside</span>
-                  <span class="type-option-sub">Embed a player from another site</span>
-                </span>
-              </label>
-              <label class="type-option">
                 <input type="radio" name="roomType" value="download" />
                 <span class="type-option-card">
                   <span class="type-option-icon" aria-hidden="true">⇣</span>
@@ -93,22 +85,6 @@
             <span class="field-hint">
               Paste a magnet link. We stream the video straight from the swarm — playback starts
               before it finishes downloading, and nothing is re-hosted.
-            </span>
-          </div>
-
-          <div class="field type-panel" data-type-panel="external" hidden>
-            <label class="field-label" for="externalUrl">Embed link</label>
-            <input
-              class="field-input"
-              id="externalUrl"
-              name="externalUrl"
-              type="url"
-              maxlength="2048"
-              placeholder="https://example.com/embed/movie-id"
-            />
-            <span class="field-hint">
-              An iframe-friendly URL — your visitors watch through the other site's player. We
-              never download or re-host the video.
             </span>
           </div>
 

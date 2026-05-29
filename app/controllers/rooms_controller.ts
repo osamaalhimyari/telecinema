@@ -128,7 +128,7 @@ export default class RoomsController {
    * the request is an AJAX request and as a flash + redirect otherwise.
    */
   async store({ request, response, session }: HttpContext) {
-    const { name, password, roomType, videoUrl, externalUrl, magnet, reactions } =
+    const { name, password, roomType, videoUrl, magnet, reactions } =
       await request.validateUsing(createRoomValidator)
     const wantsJson = request.ajax()
 
@@ -137,56 +137,6 @@ export default class RoomsController {
       if (wantsJson) return response.status(422).json({ error: message })
       session.flash('error', message)
       return response.redirect().back()
-    }
-
-    /**
-     * External flow — the room is just a label in front of someone else's
-     * embed. Nothing to download, nothing to store; the room is ready the
-     * instant the row exists.
-     */
-    if (roomType === 'external') {
-      if (!externalUrl) {
-        return fail('Please paste the embed link for the external stream.')
-      }
-
-      let parsed: URL
-      try {
-        parsed = new URL(externalUrl)
-      } catch {
-        return fail('That does not look like a valid embed link.')
-      }
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return fail('Embed links must use http or https.')
-      }
-
-      const base = slugify(name) || 'room'
-      let slug = base
-      while (await Room.findBy('slug', slug)) {
-        slug = `${base}-${Math.random().toString(36).slice(2, 6)}`
-      }
-
-      const room = await Room.create({
-        name,
-        slug,
-        videoFilename: '',
-        thumbnailFilename: '',
-        roomType: 'external',
-        externalUrl,
-        isUserCreated: true,
-        passwordHash: password ? await hash.make(password) : null,
-        reactions: reactions ?? null,
-      })
-
-      if (room.hasPassword) {
-        session.put(this.unlockKey(room.id), true)
-      }
-
-      if (wantsJson) {
-        return response.json({ redirectTo: `/room/${room.slug}` })
-      }
-
-      session.flash('success', `Room "${room.name}" is ready.`)
-      return response.redirect(`/room/${room.slug}`)
     }
 
     /**
@@ -275,7 +225,6 @@ export default class RoomsController {
       videoFilename,
       thumbnailFilename: '',
       roomType: 'upload',
-      externalUrl: null,
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
       reactions: reactions ?? null,

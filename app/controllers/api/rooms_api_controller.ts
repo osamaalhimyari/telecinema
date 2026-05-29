@@ -93,44 +93,16 @@ export default class RoomsApiController {
 
   /**
    * POST /api/rooms — create a room. Mirrors the three web flows:
-   *   - `external` → row is ready immediately; returns the created room.
    *   - `download` → starts a background fetch; returns a `jobId` to poll.
+   *   - `torrent`  → starts a background swarm add; returns a `jobId` to poll.
    *   - `upload`   → multipart video file; returns the created room.
    */
   async store({ request, response }: HttpContext) {
-    const { name, password, roomType, videoUrl, externalUrl, magnet, reactions } =
+    const { name, password, roomType, videoUrl, magnet, reactions } =
       await request.validateUsing(createRoomValidator)
 
     const fail = (message: string, status = 422) =>
       response.status(status).json({ success: false, message })
-
-    // ---- external embed -------------------------------------------------
-    if (roomType === 'external') {
-      if (!externalUrl) return fail('Please paste the embed link for the external stream.')
-      let parsed: URL
-      try {
-        parsed = new URL(externalUrl)
-      } catch {
-        return fail('That does not look like a valid embed link.')
-      }
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return fail('Embed links must use http or https.')
-      }
-
-      const slug = await this.uniqueSlug(name)
-      const room = await Room.create({
-        name,
-        slug,
-        videoFilename: '',
-        thumbnailFilename: '',
-        roomType: 'external',
-        externalUrl,
-        isUserCreated: true,
-        passwordHash: password ? await hash.make(password) : null,
-        reactions: reactions ?? null,
-      })
-      return response.json({ success: true, data: { room: this.serialize(room) } })
-    }
 
     // ---- download from a link ------------------------------------------
     if (roomType === 'download') {
@@ -185,7 +157,6 @@ export default class RoomsApiController {
       videoFilename,
       thumbnailFilename: '',
       roomType: 'upload',
-      externalUrl: null,
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
       reactions: reactions ?? null,

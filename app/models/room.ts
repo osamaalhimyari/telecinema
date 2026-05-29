@@ -23,17 +23,22 @@ export default class Room extends BaseModel {
   declare thumbnailFilename: string
 
   /**
-   * Source of the room's video. `upload` and `download` both end up as a
-   * file under `storage/videos/`; `external` is an embed URL rendered as an
-   * iframe; `torrent` streams a file out of a BitTorrent swarm (via WebTorrent)
+   * Source of the room's video. Rooms are created as one of three types:
+   * `upload` and `download` both end up as a file under `storage/videos/`,
+   * and `torrent` streams a file out of a BitTorrent swarm (via WebTorrent)
    * served over `/stream/:slug`, downloading pieces on demand.
+   *
+   * `external` (an iframe embed URL) is a **legacy** type: existing rows still
+   * render, but it can no longer be created — the create form offers only
+   * upload, download and torrent.
    */
   @column()
   declare roomType: 'upload' | 'download' | 'external' | 'torrent'
 
   /**
-   * Embed URL for `external` rooms — the third-party player iframe shown in
-   * place of our own `<video>` element. Null for upload/download/torrent rooms.
+   * Embed URL for legacy `external` rooms — the third-party player iframe
+   * shown in place of our own `<video>` element. Always null for the
+   * upload/download/torrent types that can be created today.
    */
   @column()
   declare externalUrl: string | null

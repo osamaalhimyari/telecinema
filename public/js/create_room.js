@@ -3,8 +3,9 @@
    --------------------------------------------------------------------------
    Drives the "Create room" form. A room's video can be supplied three ways:
 
-     • Stream from outside — an embed URL rendered as an iframe. The room is
-                              created instantly, no bytes change hands.
+     • Magnet / Torrent    — streamed from a BitTorrent swarm. The form POST
+                              returns a job id, polled until swarm metadata is
+                              in and the room exists.
      • Download from link  — the server fetches the file itself; the form POST
                               returns a job id, which is then polled so the
                               progress bar tracks the server-side download.
@@ -13,8 +14,8 @@
 
    The visitor picks one with the type selector at the top of the form, and
    only the field that matches their choice is visible. On submit we route to
-   the right server response handler (redirect for upload/external, polling
-   for download).
+   the right server response handler (redirect for upload, polling for
+   download/torrent).
    ========================================================================== */
 
 ;(function () {
@@ -23,7 +24,6 @@
   var form = document.getElementById('createForm')
   var fileInput = document.getElementById('video')
   var videoUrlInput = document.getElementById('videoUrl')
-  var externalUrlInput = document.getElementById('externalUrl')
   var magnetInput = document.getElementById('magnet')
   var dropzone = document.getElementById('dropzone')
   var dropzoneText = document.getElementById('dropzoneText')
@@ -50,7 +50,7 @@
 
   function currentType() {
     var checked = typePicker.querySelector('input[name="roomType"]:checked')
-    return checked ? checked.value : 'external'
+    return checked ? checked.value : 'torrent'
   }
 
   function applyType() {
@@ -351,12 +351,7 @@
     // Per-type presence check — the controller validates again, but failing
     // here means the visitor never sees a server round-trip for an obvious
     // typo.
-    if (type === 'external') {
-      if (!externalUrlInput.value.trim()) {
-        showError('Please paste the embed link for the external stream.')
-        return
-      }
-    } else if (type === 'torrent') {
+    if (type === 'torrent') {
       if (!magnetInput.value.trim()) {
         showError('Please paste a magnet link.')
         return
@@ -392,7 +387,6 @@
       renderProgress(null, 0)
     } else {
       submitBtn.textContent = 'Creating…'
-      // External rooms appear instantly; no progress bar needed.
     }
 
     // Meaningful only when an actual file is travelling over the wire.
@@ -434,7 +428,7 @@
       }
 
       if (xhr.status >= 200 && xhr.status < 300) {
-        // Upload + external — the room already exists, go straight to it.
+        // Upload — the room already exists, go straight to it.
         if (body.redirectTo) {
           window.location.href = body.redirectTo
           return
