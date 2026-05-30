@@ -4,7 +4,12 @@ import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
-import { startTorrentRoom, getTorrentJob, removeRoomTorrent } from '#services/torrent_streamer'
+import {
+  startTorrentRoom,
+  startMagnetDownload,
+  getTorrentJob,
+  removeRoomTorrent,
+} from '#services/torrent_streamer'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -144,14 +149,24 @@ export default class RoomsController {
      * creates it once the video has finished downloading.
      */
     if (roomType === 'download') {
-      if (!videoUrl) {
-        return fail('Please paste a link to the video file.')
-      }
+      // A magnet in the download flow is fully fetched by the server (then
+      // served as a file room), unlike the `torrent` flow which streams it.
       let jobId: string
-      try {
-        jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl, reactions: reactions ?? null, category: category ?? null })
-      } catch (error) {
-        return fail(error instanceof Error ? error.message : 'That link could not be used.')
+      if (magnet) {
+        try {
+          jobId = startMagnetDownload({ name, password: password ?? null, magnet, reactions: reactions ?? null, category: category ?? null })
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'That magnet link could not be used.')
+        }
+      } else {
+        if (!videoUrl) {
+          return fail('Please paste a link or a magnet.')
+        }
+        try {
+          jobId = startUrlDownload({ name, password: password ?? null, url: videoUrl, reactions: reactions ?? null, category: category ?? null })
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'That link could not be used.')
+        }
       }
 
       if (wantsJson) {

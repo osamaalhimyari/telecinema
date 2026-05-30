@@ -4,7 +4,12 @@ import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
-import { startTorrentRoom, getTorrentJob, removeRoomTorrent } from '#services/torrent_streamer'
+import {
+  startTorrentRoom,
+  startMagnetDownload,
+  getTorrentJob,
+  removeRoomTorrent,
+} from '#services/torrent_streamer'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -104,9 +109,26 @@ export default class RoomsApiController {
     const fail = (message: string, status = 422) =>
       response.status(status).json({ success: false, message })
 
-    // ---- download from a link ------------------------------------------
+    // ---- download from a link OR a magnet ------------------------------
+    // The server fetches the video to disk either way; a magnet is downloaded
+    // fully (then served as a normal file room) instead of streamed on demand.
     if (roomType === 'download') {
-      if (!videoUrl) return fail('Please paste a link to the video file.')
+      if (magnet) {
+        try {
+          const jobId = startMagnetDownload({
+            name,
+            password: password ?? null,
+            magnet,
+            reactions: reactions ?? null,
+            category: category ?? null,
+            imdbId: imdbId ?? null,
+          })
+          return response.json({ success: true, data: { jobId } })
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'torrent_invalid_magnet')
+        }
+      }
+      if (!videoUrl) return fail('Please paste a link or a magnet.')
       try {
         const jobId = startUrlDownload({
           name,

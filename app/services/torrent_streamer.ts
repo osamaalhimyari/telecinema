@@ -17,7 +17,10 @@
 |
 */
 
-import { mkdir } from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import { mkdir, rename, unlink } from 'node:fs/promises'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { basename, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 // Type-only imports — fully erased at build, so they never load the webtorrent
@@ -34,6 +37,9 @@ const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.webm', '.mkv', '.ogv', '.ogg', '.mov
 
 /** How long to wait for swarm metadata before giving up on a magnet. */
 const METADATA_TIMEOUT_MS = 90 * 1000
+
+/** Hard ceiling on a fully-downloaded magnet file — matches the URL downloader. */
+const MAX_VIDEO_BYTES = 15 * 1024 ** 3
 
 /** Finished jobs linger this long so the client's final poll can read them. */
 const JOB_TTL_MS = 5 * 60 * 1000
@@ -328,6 +334,142 @@ export function startTorrentRoom(opts: {
 
   /** Detached on purpose: progress is observed via `getTorrentJob`. */
   void runTorrentRoom(
+    jobId,
+    magnet,
+    opts.name,
+    opts.password,
+    opts.reactions ?? null,
+    opts.category ?? null,
+    opts.imdbId ?? null
+  )
+
+  return jobId
+}
+
+/**
+ * Fully downloads a magnet's video to `storage/videos/` and creates a normal
+ * **file** room (`roomType: 'download'`) from it — the swarm copy is then
+ * dropped, so playback afterwards streams straight off disk via
+ * `/video/:filename` with no live peers. This is the "let the *server* fetch
+ * the magnet" path (the `torrent` room type instead streams on demand, and the
+ * app streams that on-device); here every client just plays the server's file.
+ *
+ * Shares the same job map + poll endpoint as the swarm-stream flow, but reports
+ * a real `percent` because there is a finite file to download. Never throws —
+ * failures are recorded on the job, mirroring the URL downloader.
+ */
+async function runMagnetDownload(
+  jobId: string,
+  magnet: string,
+  name: string,
+  password: string | null,
+  reactions: string | null,
+  category: string | null,
+  imdbId: string | null
+): Promise<void> {
+  const job = torrentJobs.get(jobId)
+  if (!job) return
+
+  const tmpPath = app.makePath('storage/videos', `.magnet-${jobId}.part`)
+
+  try {
+    await mkdir(app.makePath('storage/videos'), { recursive: true })
+
+    const torrent = await ensureTorrent(magnet)
+    const file = pickVideoFile(torrent)
+    if (!file) throw new Error(ERR_NO_VIDEO)
+    if (file.length > MAX_VIDEO_BYTES) throw new Error(ERR_FAILED)
+
+    job.totalBytes = file.length
+
+    /** Tallies bytes for the progress bar as pieces stream in from the swarm. */
+    const counter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        job.bytesDownloaded += chunk.length
+        job.percent = job.totalBytes
+          ? Math.min(99, Math.floor((job.bytesDownloaded / job.totalBytes) * 100))
+          : null
+        job.updatedAt = Date.now()
+        callback(null, chunk)
+      },
+    })
+
+    // Reading the file end-to-end pulls every piece from the swarm; the bytes
+    // land on disk as a normal video file.
+    await pipeline(file.createReadStream(), counter, createWriteStream(tmpPath))
+
+    const ext = extname(file.name).replace(/^\./, '').toLowerCase() || 'mp4'
+    const slug = await uniqueSlug(name)
+    const videoFilename = `${slug}.${ext}`
+    await rename(tmpPath, app.makePath('storage/videos', videoFilename))
+
+    await Room.create({
+      name,
+      slug,
+      videoFilename,
+      thumbnailFilename: '',
+      roomType: 'download',
+      externalUrl: null,
+      magnet: null,
+      isUserCreated: true,
+      passwordHash: password ? await hash.make(password) : null,
+      reactions: reactions ?? null,
+      category: category ?? null,
+      imdbId: imdbId ?? null,
+    })
+
+    // The file is on disk now — stop seeding and delete the swarm's piece cache
+    // under storage/torrents so we are not keeping two copies.
+    try {
+      active.delete(magnet)
+      client?.remove(torrent, { destroyStore: true })
+    } catch {
+      /* already torn down */
+    }
+
+    job.status = 'done'
+    job.slug = slug
+    job.percent = 100
+    job.bytesDownloaded = file.length
+    job.updatedAt = Date.now()
+  } catch (err) {
+    await unlink(tmpPath).catch(() => {})
+    job.status = 'error'
+    job.error = errorKey(err)
+    job.updatedAt = Date.now()
+  }
+
+  scheduleEviction(jobId)
+}
+
+/**
+ * Starts a full server-side download of `magnet` into a file room and returns
+ * the id the client polls (same `getTorrentJob` endpoint as the stream flow).
+ * Throws synchronously for a malformed magnet; later failures surface on the job.
+ */
+export function startMagnetDownload(opts: {
+  name: string
+  password: string | null
+  magnet: string
+  reactions?: string | null
+  category?: string | null
+  imdbId?: string | null
+}): string {
+  const magnet = normalizeMagnet(opts.magnet)
+  const jobId = randomUUID()
+
+  torrentJobs.set(jobId, {
+    status: 'downloading',
+    percent: 0,
+    bytesDownloaded: 0,
+    totalBytes: null,
+    error: null,
+    slug: null,
+    updatedAt: Date.now(),
+  })
+
+  /** Detached on purpose: progress is observed via `getTorrentJob`. */
+  void runMagnetDownload(
     jobId,
     magnet,
     opts.name,
