@@ -98,7 +98,7 @@ export default class RoomsApiController {
    *   - `upload`   → multipart video file; returns the created room.
    */
   async store({ request, response }: HttpContext) {
-    const { name, password, roomType, videoUrl, magnet, reactions, category } =
+    const { name, password, roomType, videoUrl, magnet, reactions, category, imdbId } =
       await request.validateUsing(createRoomValidator)
 
     const fail = (message: string, status = 422) =>
@@ -114,6 +114,7 @@ export default class RoomsApiController {
           url: videoUrl,
           reactions: reactions ?? null,
           category: category ?? null,
+          imdbId: imdbId ?? null,
         })
         return response.json({ success: true, data: { jobId } })
       } catch (error) {
@@ -131,6 +132,7 @@ export default class RoomsApiController {
           magnet,
           reactions: reactions ?? null,
           category: category ?? null,
+          imdbId: imdbId ?? null,
         })
         return response.json({ success: true, data: { jobId } })
       } catch (error) {
@@ -163,6 +165,7 @@ export default class RoomsApiController {
       passwordHash: password ? await hash.make(password) : null,
       reactions: reactions ?? null,
       category: category ?? null,
+      imdbId: imdbId ?? null,
     })
     return response.json({ success: true, data: { room: this.serialize(room) } })
   }

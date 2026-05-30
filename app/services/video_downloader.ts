@@ -213,6 +213,7 @@ async function createRoom(
   password: string | null,
   reactions: string | null,
   category: string | null,
+  imdbId: string | null,
   tmpPath: string,
   ext: string
 ): Promise<Room> {
@@ -236,6 +237,7 @@ async function createRoom(
     passwordHash: password ? await hash.make(password) : null,
     reactions: reactions ?? null,
     category: category ?? null,
+    imdbId: imdbId ?? null,
   })
 }
 
@@ -260,7 +262,8 @@ async function runDownload(
   name: string,
   password: string | null,
   reactions: string | null,
-  category: string | null
+  category: string | null,
+  imdbId: string | null
 ): Promise<void> {
   const job = jobs.get(jobId)
   if (!job) return
@@ -319,7 +322,7 @@ async function runDownload(
     )
 
     /** The bytes are on disk — only now does the room come into existence. */
-    const room = await createRoom(name, password, reactions, category, tmpPath, ext)
+    const room = await createRoom(name, password, reactions, category, imdbId, tmpPath, ext)
 
     job.status = 'done'
     job.percent = 100
@@ -349,6 +352,7 @@ export function startUrlDownload(opts: {
   url: string
   reactions?: string | null
   category?: string | null
+  imdbId?: string | null
 }): string {
   const url = parseHttpUrl(opts.url)
   const jobId = randomUUID()
@@ -366,7 +370,15 @@ export function startUrlDownload(opts: {
   })
 
   /** Detached on purpose: progress is observed via `getJob`, never awaited. */
-  void runDownload(jobId, url, opts.name, opts.password, opts.reactions ?? null, opts.category ?? null)
+  void runDownload(
+    jobId,
+    url,
+    opts.name,
+    opts.password,
+    opts.reactions ?? null,
+    opts.category ?? null,
+    opts.imdbId ?? null
+  )
 
   return jobId
 }

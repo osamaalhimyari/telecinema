@@ -79,6 +79,14 @@ export default class Room extends BaseModel {
   @column()
   declare category: string | null
 
+  /**
+   * IMDB id of the title this room plays (e.g. `tt1190634`), captured when the
+   * room is created from the Browse catalogue. Powers the in-room "Download
+   * subtitle" search against OpenSubtitles. Null for manually created rooms.
+   */
+  @column()
+  declare imdbId: string | null
+
   @column()
   declare reactions: string | null
 

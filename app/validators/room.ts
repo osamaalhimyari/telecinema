@@ -24,4 +24,5 @@ export const createRoomValidator = vine.create({
   magnet: vine.string().trim().maxLength(8192).nullable().optional(),
   reactions: vine.string().nullable().optional(),
   category: vine.string().trim().maxLength(40).nullable().optional(),
+  imdbId: vine.string().trim().maxLength(20).nullable().optional(),
 })
