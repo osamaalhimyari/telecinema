@@ -296,6 +296,19 @@ async function runTorrentRoom(
       imdbId: imdbId ?? null,
     })
 
+    // Metadata is all the server needed: the room now exists, and from here the
+    // clients stream the torrent themselves — the mobile app on-device, the web
+    // peer-to-peer in the browser. So drop the swarm from the server instead of
+    // letting WebTorrent download the entire movie in the background. If a web
+    // client ever finds no peers, /stream/:slug re-adds the magnet on demand
+    // (the only path that makes the server touch the swarm at all).
+    try {
+      active.delete(magnet)
+      client?.remove(torrent, { destroyStore: true })
+    } catch {
+      /* already torn down */
+    }
+
     job.status = 'done'
     job.slug = slug
     job.percent = 100

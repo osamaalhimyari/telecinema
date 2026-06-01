@@ -49,7 +49,19 @@
       "Bash(node -e \"const p=require\\('webtorrent/package.json'\\); console.log\\('main:',p.main\\); console.log\\('module:',p.module\\); console.log\\('browser:',JSON.stringify\\(p.browser\\)\\); console.log\\('exports:',JSON.stringify\\(p.exports,null,1\\)\\)\")",
       "Bash(grep -o \"createServer\\(.\\\\{0,80\\\\}\" node_modules/webtorrent/dist/webtorrent.min.js)",
       "Bash(grep -o \"webtorrent/.\\\\{0,40\\\\}\" node_modules/webtorrent/dist/webtorrent.min.js)",
-      "Bash(node --check public/sw.min.js)"
+      "Bash(node --check public/sw.min.js)",
+      "Bash(git --no-pager log --oneline origin/v1..v1)",
+      "Bash(git --no-pager log --oneline -10)",
+      "Bash(git --no-pager log --stat --oneline origin/v1..v1)",
+      "Bash(git --no-pager log --oneline --all -- watch-party.zip)",
+      "Bash(git --no-pager log --oneline --all -- \"storage/torrents/*\")",
+      "Bash(git --no-pager log --oneline -1 origin/v1)",
+      "Bash(git --no-pager log --oneline -1 v1)",
+      "Bash(ls -lh watch-party.zip)",
+      "Bash(cat .gitignore)",
+      "Bash(git --no-pager log --oneline -3)",
+      "Bash(awk '/^blob/ {print $2, $3}')",
+      "Bash(echo \"tsc exit: $?\")"
     ],
     "additionalDirectories": [
       "c:\\xampp\\htdocs\\projects\\mine\\watch-party\\public",

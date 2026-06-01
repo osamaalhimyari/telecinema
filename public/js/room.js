@@ -162,8 +162,14 @@
     if (state.isPlaying) {
       var playPromise = video.play()
       if (playPromise && playPromise.catch) {
-        // Unmuted autoplay is blocked until the user interacts: show the gate.
-        playPromise.catch(showGate)
+        playPromise.catch(function (err) {
+          // Only a genuine autoplay block — which needs a user gesture to
+          // clear — should raise the "tap to play" gate. A seek (or a freshly
+          // arrived sync) interrupts the pending play() with an AbortError, and
+          // a streaming stall rejects too; those are transient and must NOT
+          // flash the gate every time the viewer scrubs the timeline.
+          if (err && err.name === 'NotAllowedError') showGate()
+        })
       }
     } else {
       video.pause()
@@ -321,11 +327,25 @@
     })
 
     /**
-     * The seek bar fires "input" only on real user interaction — programmatic
-     * `seek.value` updates from the poll loop below do not trigger it.
+     * Scrubbing the seek bar. We commit the seek only when the user lets go
+     * (`change`), not on every `input` tick: a streaming source (in-browser
+     * torrent or the server stream) has to re-fetch data for each landing
+     * point, so seeking on every pixel of the drag re-buffers dozens of times
+     * and floods the room with `seek` events. During the drag we just move the
+     * time label so the viewer still sees where they're heading.
+     *
+     * `input`/`change` fire only on real user interaction — programmatic
+     * `seek.value` updates from the poll loop below do not trigger them.
      */
+    var isScrubbing = false
     seek.addEventListener('input', function () {
       if (isSyncing) return
+      isScrubbing = true
+      curTime.textContent = formatTime(parseFloat(seek.value) || 0)
+    })
+    seek.addEventListener('change', function () {
+      if (isSyncing) return
+      isScrubbing = false
       seekTo(parseFloat(seek.value))
     })
 
@@ -339,12 +359,13 @@
       var duration = video.duration || 0
       var current = video.currentTime || 0
 
-      // Don't fight the user while they are dragging the slider.
-      if (duration > 0 && document.activeElement !== seek) {
+      // Don't fight the user while they are dragging the slider — leave both the
+      // thumb and the time label showing their chosen target until they let go.
+      if (duration > 0 && !isScrubbing && document.activeElement !== seek) {
         seek.value = String(current)
       }
 
-      curTime.textContent = formatTime(current)
+      if (!isScrubbing) curTime.textContent = formatTime(current)
       durTime.textContent = formatTime(duration)
     }, 250)
 
