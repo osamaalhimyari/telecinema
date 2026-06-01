@@ -52,6 +52,16 @@ export default class Room extends BaseModel {
   declare magnet: string | null
 
   /**
+   * For `torrent` rooms, the directory under `storage/torrents/` where the
+   * swarm's pieces are cached on disk — WebTorrent names it after the torrent's
+   * own `name`. Kept so the cached files can be deleted by path when the room
+   * is removed, even when the live swarm is no longer in memory to tear down
+   * (e.g. after a server restart). Never serialized; null for every other type.
+   */
+  @column({ serializeAs: null })
+  declare torrentDir: string | null
+
+  /**
    * Filename of an uploaded subtitle file (SRT/VTT) for a room. Stored under
    * `storage/subtitles/` and served via `/subtitles/:filename`. File rooms
    * load it as an external subtitle track; legacy external rooms render it as
@@ -59,6 +69,25 @@ export default class Room extends BaseModel {
    */
   @column()
   declare subtitleFilename: string | null
+
+  /**
+   * Shared subtitle display settings, synchronized across every client in the
+   * room (like {@link subtitleFilename} itself). Updated over the socket via
+   * `set_subtitle_settings` and broadcast as `subtitle_settings_changed`.
+   *
+   *  - `subtitleOffset` — seconds to shift cues (+later / -earlier), clamped
+   *    to [-60, 60]. Reset to 0 whenever the subtitle (or source) changes.
+   *  - `subtitleWeight` — font weight 100..900 (500 = default).
+   *  - `subtitleSize`   — font size in px (16 = default).
+   */
+  @column()
+  declare subtitleOffset: number
+
+  @column()
+  declare subtitleWeight: number
+
+  @column()
+  declare subtitleSize: number
 
   /**
    * Scrypt hash of the room password, or null for open rooms. Never

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
     <link rel="stylesheet" href="/css/app.css?v=21" />
+    <script src="/js/guard.js?v=21"></script>
   </head>
   <body class="page-room">
     @include('partials/flash')
@@ -90,14 +91,30 @@
             <div class="subtitle-overlay" id="subtitleOverlay">
               <span class="subtitle-text" id="subtitleText"></span>
             </div>
-          @else
-            {{-- Torrent rooms stream from the swarm via /stream/:slug (pieces
-                 fetched on demand); upload/download rooms serve a file on disk
-                 from /video/:filename. Both are range-supported <video> sources. --}}
+          @elseif(room.roomType === 'torrent')
+            {{-- Torrent rooms stream peer-to-peer IN THE BROWSER (WebTorrent
+                 over WebRTC), like the mobile app streams on-device — the
+                 server only carries the play/pause/seek sync, not the bytes.
+                 If no web peers are reachable, room.js falls back to the
+                 server's /stream/:slug (the full TCP/UDP swarm). The magnet and
+                 that fallback URL ride on data-* attributes; room.js sets the
+                 actual `src`. The raw magnet is otherwise never sent to clients,
+                 but the web player needs it to join the swarm itself. --}}
             <video
               id="video"
               class="player-video"
-              src="{{ room.roomType === 'torrent' ? '/stream/' + room.slug : '/video/' + room.videoFilename }}"
+              data-magnet="{{ room.magnet || '' }}"
+              data-fallback="/stream/{{ room.slug }}"
+              preload="auto"
+              playsinline
+            ></video>
+          @else
+            {{-- upload/download rooms serve a file on disk from /video/:filename,
+                 a range-supported <video> source. --}}
+            <video
+              id="video"
+              class="player-video"
+              src="/video/{{ room.videoFilename }}"
               preload="auto"
               playsinline
             ></video>
@@ -522,6 +539,12 @@
       </div>
     @end
 
+    @if(room.roomType === 'torrent')
+      {{-- Browser BitTorrent engine — only loaded for torrent rooms, which
+           stream peer-to-peer in the browser before falling back to the
+           server. ~240 KB, so kept off every other room type. --}}
+      <script src="/js/webtorrent.min.js?v=22"></script>
+    @end
     <script src="/socket.io/socket.io.js"></script>
     <script>
       window.ROOM_SLUG = "{{ room.slug }}"
@@ -543,6 +566,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=21"></script>
+    <script src="/js/room.js?v=22"></script>
   </body>
 </html>

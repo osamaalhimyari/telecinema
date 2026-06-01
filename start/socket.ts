@@ -49,6 +49,12 @@ interface ChatMessage {
   text: string
   /** ms since epoch — for relative rendering on each client. */
   ts: number
+  /**
+   * Client-generated nonce, echoed back unchanged. Lets the sender reconcile
+   * its optimistic bubble with the delivered copy, and lets us drop a duplicate
+   * if a flaky client re-sends the same message after a reconnect.
+   */
+  clientId?: string
 }
 
 const CHAT_HISTORY_LIMIT = 80
@@ -71,6 +77,7 @@ interface ControlPayload {
 
 interface ChatPayload {
   text?: unknown
+  clientId?: unknown
 }
 
 interface BufferStatePayload {
@@ -269,6 +276,33 @@ function broadcastWaitState(server: Server, slug: string): void {
   server.to(slug).emit('wait_state', { users: bufferingList(slug) })
 }
 
+/** Allowed bounds for the shared subtitle settings (mirrored on the client). */
+const SUBTITLE_OFFSET_MIN = -60
+const SUBTITLE_OFFSET_MAX = 60
+const SUBTITLE_WEIGHT_MIN = 100
+const SUBTITLE_WEIGHT_MAX = 900
+const SUBTITLE_SIZE_MIN = 14
+const SUBTITLE_SIZE_MAX = 44
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * Sends a room's shared subtitle settings (timing offset, weight, size) to a
+ * single socket — used to seed a newcomer on join so their subtitles line up
+ * with the rest of the room from the first frame.
+ */
+async function emitSubtitleSettings(socket: Socket, slug: string): Promise<void> {
+  const room = await Room.findBy('slug', slug)
+  if (!room) return
+  socket.emit('subtitle_settings_changed', {
+    offset: room.subtitleOffset ?? 0,
+    weight: room.subtitleWeight ?? 500,
+    size: room.subtitleSize ?? 28,
+  })
+}
+
 /**
  * Central buffer-watchdog logic. Called whenever the buffer map for a
  * room changes — by a `buffer_state` event, or by a socket disconnect.
@@ -378,6 +412,10 @@ function registerHandlers(server: Server, socket: Socket) {
 
     /* Show them who (if anyone) is currently holding the room paused. */
     socket.emit('wait_state', { users: bufferingList(slug) })
+
+    /* Seed the newcomer with the room's shared subtitle settings so their
+       timing offset / weight / size match everyone else immediately. */
+    void emitSubtitleSettings(socket, slug)
 
     if (!alreadyInRoom) {
       broadcastViewerCount(server, slug, state.viewerCount)
@@ -491,8 +529,28 @@ function registerHandlers(server: Server, socket: Socket) {
     const text = raw.replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LENGTH)
     if (!text) return
 
+    const clientId =
+      typeof payload?.clientId === 'string' && payload.clientId.length > 0
+        ? payload.clientId.slice(0, 64)
+        : undefined
+
+    /**
+     * Idempotency: a client on a flaky connection re-sends queued messages
+     * after it reconnects. If we've already stored this nonce, the first send
+     * got through and only the sender's echo was lost — re-broadcast the stored
+     * copy so it can confirm, and never store a duplicate. This also means a
+     * retry is *not* charged against the rate limit.
+     */
+    if (clientId) {
+      const existing = roomChats.get(slug)?.find((m) => m.clientId === clientId)
+      if (existing) {
+        server.to(slug).emit('chat', existing)
+        return
+      }
+    }
+
     if (!withinChatRate(socket.id)) {
-      socket.emit('chat_throttled', { retryAfter: CHAT_RATE_WINDOW_MS })
+      socket.emit('chat_throttled', { retryAfter: CHAT_RATE_WINDOW_MS, clientId })
       return
     }
 
@@ -506,6 +564,7 @@ function registerHandlers(server: Server, socket: Socket) {
       name,
       text,
       ts: Date.now(),
+      clientId,
     }
     pushChatMessage(slug, message)
     server.to(slug).emit('chat', message)
@@ -550,6 +609,8 @@ function registerHandlers(server: Server, socket: Socket) {
     }
     room.externalUrl = raw
     room.subtitleFilename = null
+    /* The previous timing offset belonged to the old subtitle/content. */
+    room.subtitleOffset = 0
     await room.save()
 
     const state = getRoomState(slug)
@@ -568,7 +629,54 @@ function registerHandlers(server: Server, socket: Socket) {
       serverTime: Date.now(),
     })
     server.to(slug).emit('chat_history', { messages: [] })
+    server.to(slug).emit('subtitle_settings_changed', {
+      offset: 0,
+      weight: room.subtitleWeight ?? 500,
+      size: room.subtitleSize ?? 28,
+    })
   })
+
+  /**
+   * Update the room's shared subtitle settings — the timing offset (to fix a
+   * subtitle that runs ahead of or behind the scene), the text weight and the
+   * size. Any client may change them (like playback control, there is no host);
+   * the values are clamped, persisted on the room row so late joiners inherit
+   * them, and broadcast to everyone (including the sender) so all clients
+   * converge on the same look. Only the provided fields are touched.
+   */
+  socket.on(
+    'set_subtitle_settings',
+    async (payload: { offset?: unknown; weight?: unknown; size?: unknown }) => {
+      const slug = socket.data.roomSlug
+      if (typeof slug !== 'string' || slug.length === 0) return
+
+      const room = await Room.findBy('slug', slug)
+      if (!room) return
+
+      if (Number.isFinite(Number(payload?.offset))) {
+        room.subtitleOffset =
+          Math.round(clamp(Number(payload.offset), SUBTITLE_OFFSET_MIN, SUBTITLE_OFFSET_MAX) * 10) /
+          10
+      }
+      if (Number.isFinite(Number(payload?.weight))) {
+        room.subtitleWeight = Math.round(
+          clamp(Number(payload.weight), SUBTITLE_WEIGHT_MIN, SUBTITLE_WEIGHT_MAX)
+        )
+      }
+      if (Number.isFinite(Number(payload?.size))) {
+        room.subtitleSize = Math.round(
+          clamp(Number(payload.size), SUBTITLE_SIZE_MIN, SUBTITLE_SIZE_MAX)
+        )
+      }
+      await room.save()
+
+      server.to(slug).emit('subtitle_settings_changed', {
+        offset: room.subtitleOffset,
+        weight: room.subtitleWeight,
+        size: room.subtitleSize,
+      })
+    }
+  )
 
   /**
    * Manual realignment for external (iframe) rooms. Cross-origin embeds
@@ -616,7 +724,8 @@ function registerHandlers(server: Server, socket: Socket) {
     const slug = socket.data.roomSlug
     if (typeof slug !== 'string' || slug.length === 0) return
 
-    socket.to(slug).emit('voice_chunk', { id: socket.id, chunk })
+    // Audio is already codec-compressed — deflating it again just burns CPU.
+    socket.to(slug).compress(false).emit('voice_chunk', { id: socket.id, chunk })
   })
 
   socket.on('voice_end', () => {
@@ -736,6 +845,15 @@ export function boot(httpServer: HttpServer): Server {
 
   io = new Server(httpServer, {
     cors: { origin: '*' },
+    /**
+     * Compress frames at the WebSocket transport (permessage-deflate) rather
+     * than per message in app code — short chat strings would only grow under
+     * gzip-style headers, but the WS layer skips anything under `threshold` and
+     * deflates the larger payloads (chat history backlog, long messages) for
+     * free, transparently on both web and native clients. Binary voice audio is
+     * already compressed, so its relay opts out below via `.compress(false)`.
+     */
+    perMessageDeflate: { threshold: 1024 },
   })
 
   io.on('connection', (socket) => registerHandlers(io as Server, socket))

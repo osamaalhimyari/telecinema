@@ -457,7 +457,7 @@ export default class RoomsController {
      */
     if (room.roomType === 'torrent') {
       /* Tear down the swarm and delete its cached pieces under storage/torrents. */
-      removeRoomTorrent(room)
+      await removeRoomTorrent(room)
     } else if (room.videoFilename) {
       try {
         await unlink(app.makePath('storage/videos', basename(room.videoFilename)))

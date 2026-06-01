@@ -18,7 +18,7 @@
 */
 
 import { createWriteStream } from 'node:fs'
-import { mkdir, rename, unlink } from 'node:fs/promises'
+import { mkdir, rename, rm, unlink } from 'node:fs/promises'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { basename, extname } from 'node:path'
@@ -282,6 +282,9 @@ async function runTorrentRoom(
       name,
       slug,
       videoFilename: basename(file.name),
+      // The folder WebTorrent cached the pieces under (storage/torrents/<name>),
+      // recorded so the room's files can be deleted by path on teardown.
+      torrentDir: torrent.name,
       thumbnailFilename: '',
       roomType: 'torrent',
       externalUrl: null,
@@ -502,23 +505,41 @@ export async function ensureRoomTorrent(room: Room): Promise<{ torrent: Torrent;
 /**
  * Removes a torrent room's swarm and deletes its cached pieces from disk.
  * Called when the room is deleted.
+ *
+ * Two cleanup paths, since either may apply:
+ *   - If the swarm is still live in this process, removing it from the client
+ *     with `destroyStore` tears down the peers *and* deletes the cached files.
+ *   - Otherwise — e.g. the server restarted since the room was last streamed,
+ *     so the torrent was never re-added — there is nothing in memory to remove,
+ *     so the cached directory is deleted straight off disk by the name recorded
+ *     when the room was created.
  */
-export function removeRoomTorrent(room: Room): void {
-  if (!room.magnet) return
-  let magnet: string
-  try {
-    magnet = normalizeMagnet(room.magnet)
-  } catch {
-    return
+export async function removeRoomTorrent(room: Room): Promise<void> {
+  if (room.magnet && client) {
+    try {
+      const magnet = normalizeMagnet(room.magnet)
+      const torrent = active.get(magnet)
+      if (torrent) {
+        active.delete(magnet)
+        client.remove(torrent, { destroyStore: true })
+        return
+      }
+    } catch {
+      /* malformed magnet / already torn down — fall through to the disk sweep */
+    }
   }
-  const torrent = active.get(magnet)
-  // If the torrent is in `active`, the client was already created — no need to
-  // (re)initialize it here just to remove something.
-  if (!torrent || !client) return
-  active.delete(magnet)
-  try {
-    client.remove(torrent, { destroyStore: true })
-  } catch {
-    /* already gone */
+
+  // No live swarm to destroy: delete the cached directory by path. `basename`
+  // keeps the delete confined to storage/torrents (no traversal via a crafted
+  // torrent name); recursive+force makes a missing directory a no-op.
+  if (room.torrentDir) {
+    try {
+      await rm(app.makePath('storage/torrents', basename(room.torrentDir)), {
+        recursive: true,
+        force: true,
+      })
+    } catch {
+      /* already gone */
+    }
   }
 }

@@ -442,12 +442,8 @@
       })
     })()
 
-    // Torrent rooms stream from the swarm via the server (/stream/:slug), which
-    // can briefly answer 503 while it finds seeders / fetches metadata. Rather
-    // than flashing "video not found" on that transient state (the file path
-    // can't recover), show a "preparing" overlay and retry the stream for up to
-    // ~90s (the server's metadata window) before giving up. Upload/download
-    // rooms have no preparing overlay, so they fail fast as before.
+    // Torrent rooms have a "preparing" overlay (upload/download rooms don't),
+    // which doubles as the flag for "this is a torrent room".
     var videoPreparing = document.getElementById('videoPreparing')
     var isTorrentRoom = !!videoPreparing
     var torrentTries = 0
@@ -461,11 +457,145 @@
       if (videoPreparing) videoPreparing.classList.remove('is-visible')
     }
 
-    // Show the preparing state immediately on a torrent room until the first
-    // frame is ready.
-    if (isTorrentRoom) showPreparing()
+    /* ----------------------------------------------------------------------
+       Hybrid torrent streaming
+       ----------------------------------------------------------------------
+       A torrent room first tries to stream peer-to-peer IN THE BROWSER via
+       WebTorrent (over WebRTC), exactly like the mobile app streams on its own
+       device — the server then only relays play/pause/seek sync, not the video
+       bytes. Browsers can only reach WebRTC/WSS peers, though, so when none are
+       found (most public magnets have none) we fall back to the server's
+       /stream/:slug, which pulls from the full TCP/UDP swarm. The control sync
+       and the rest of this file are identical either way: both sources end up
+       as a range-supported `src` on the same <video>.
+
+       Failing over to the server is never wrong — it just changes where the
+       bytes come from — so anything that blocks in-browser playback (no peers,
+       an unplayable codec, no service-worker support, an insecure origin) ends
+       in useServerFallback(). */
+    var torrentSource = null /* 'webtorrent' | 'server' */
+    var wtClient = null
+    var wtFallbackTimer = null
+    /* How long to give web peers before assuming there are none and letting the
+       server take over. Falling back early is cheap; waiting forever is not. */
+    var WT_FALLBACK_MS = 12000
+    /* Public WebRTC/WSS trackers, added to whatever the magnet carries so a
+       magnet with only udp:// trackers can still discover browser peers (e.g.
+       the Sintel demo, seeded over openwebtorrent). */
+    var WT_WSS_TRACKERS = [
+      'wss://tracker.openwebtorrent.com',
+      'wss://tracker.webtorrent.dev',
+      'wss://tracker.btorrent.xyz',
+    ]
+    var VIDEO_FILE_RE = /\.(mp4|m4v|webm|ogv|ogg|mov|mkv|avi)$/i
+
+    function clearWtFallbackTimer() {
+      if (wtFallbackTimer) {
+        clearTimeout(wtFallbackTimer)
+        wtFallbackTimer = null
+      }
+    }
+    function destroyWtClient() {
+      clearWtFallbackTimer()
+      if (wtClient) {
+        try { wtClient.destroy() } catch (e) {}
+        wtClient = null
+      }
+    }
+
+    /* Switch to the server stream. Idempotent — only the first call switches,
+       so the fallback timer, a torrent error and a media error can all race to
+       call it harmlessly. */
+    function useServerFallback() {
+      if (torrentSource === 'server') return
+      torrentSource = 'server'
+      destroyWtClient()
+      torrentTries = 0
+      showPreparing()
+      var fallback = video.getAttribute('data-fallback') || ('/stream/' + slug)
+      video.src = fallback
+      video.load()
+      var p = video.play()
+      if (p && p.catch) p.catch(function () {})
+    }
+
+    /* Runs cb once the service worker that serves streamURL is active. */
+    function whenSwActive(reg, cb) {
+      var w = reg.active || reg.waiting || reg.installing
+      if (!w || w.state === 'activated') return cb()
+      w.addEventListener('statechange', function onState() {
+        if (w.state === 'activated') {
+          w.removeEventListener('statechange', onState)
+          cb()
+        }
+      })
+    }
+
+    /* Attempt in-browser WebTorrent; defer to the server on any obstacle. */
+    function startWebTorrent() {
+      var magnet = video.getAttribute('data-magnet') || ''
+      if (
+        !magnet ||
+        typeof window.WebTorrent !== 'function' ||
+        !('serviceWorker' in navigator) ||
+        !window.isSecureContext
+      ) {
+        useServerFallback()
+        return
+      }
+
+      torrentSource = 'webtorrent'
+      showPreparing()
+      wtFallbackTimer = setTimeout(useServerFallback, WT_FALLBACK_MS)
+
+      navigator.serviceWorker
+        .register('/sw.min.js')
+        .then(function (reg) {
+          whenSwActive(reg, function () {
+            if (torrentSource !== 'webtorrent') return /* already fell back */
+            try {
+              wtClient = new window.WebTorrent()
+              wtClient.on('error', function () { useServerFallback() })
+              wtClient.createServer({ controller: reg })
+              wtClient.add(magnet, { announce: WT_WSS_TRACKERS }, function (torrent) {
+                if (torrentSource !== 'webtorrent') return
+                /* Largest video file, falling back to the largest file. */
+                var file = null
+                for (var i = 0; i < torrent.files.length; i++) {
+                  var f = torrent.files[i]
+                  if (VIDEO_FILE_RE.test(f.name) && (!file || f.length > file.length)) file = f
+                }
+                if (!file && torrent.files.length) file = torrent.files[0]
+                if (!file) { useServerFallback(); return }
+                try {
+                  video.src = file.streamURL
+                  video.load()
+                  var p = video.play()
+                  if (p && p.catch) p.catch(function () {})
+                } catch (e) {
+                  useServerFallback()
+                }
+              })
+            } catch (e) {
+              useServerFallback()
+            }
+          })
+        })
+        .catch(function () { useServerFallback() })
+    }
 
     video.addEventListener('error', function () {
+      /* The in-browser P2P source failed (e.g. an unplayable codec) — hand off
+         to the server rather than treating it as a dead end. */
+      if (torrentSource === 'webtorrent') {
+        useServerFallback()
+        return
+      }
+      // The server stream can briefly answer 503 while it finds seeders /
+      // fetches metadata. Rather than flashing "video not found" on that
+      // transient state, keep the "preparing" overlay and retry for up to ~90s
+      // (the server's metadata window) before giving up. Upload/download rooms
+      // aren't torrent rooms, so they fail fast as before.
       if (isTorrentRoom && torrentTries < TORRENT_MAX_TRIES) {
         torrentTries += 1
         videoError.classList.remove('is-visible')
@@ -490,11 +620,17 @@
       videoError.classList.remove('is-visible')
       hidePreparing()
       torrentTries = 0
+      /* Playing — whichever source won, stop the P2P→server fallback timer. */
+      clearWtFallbackTimer()
       if (torrentRetryTimer) {
         clearTimeout(torrentRetryTimer)
         torrentRetryTimer = null
       }
     })
+
+    // Kick off hybrid streaming for torrent rooms (no `src` was set in the
+    // template — we choose the source here).
+    if (isTorrentRoom) startWebTorrent()
 
     /* ----------------------------------------------------------------------
        Autoplay gate — clicking it counts as a user gesture, after which we

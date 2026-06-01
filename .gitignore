@@ -4,6 +4,9 @@ build
 tmp/*
 !tmp/.gitkeep
 
+# Project archives/backups — never commit (bloats the repo by 100s of MB)
+*.zip
+
 # Secrets
 .env
 .env.local

@@ -1,4 +1,4 @@
-import { unlink } from 'node:fs/promises'
+import { unlink, readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
@@ -17,6 +17,37 @@ import type { HttpContext } from '@adonisjs/core/http'
 /** Accepted extensions for subtitle uploads. */
 const SUBTITLE_EXTENSIONS = ['srt', 'vtt']
 const MAX_SUBTITLE_SIZE = '2mb'
+
+/**
+ * Re-encodes a subtitle file's bytes to UTF-8 so non-Latin text (notably
+ * Arabic) renders correctly on every client instead of showing as garbled
+ * symbols. Many `.srt` files in the wild — Arabic ones especially — are saved
+ * in the legacy Windows-1256 codepage; both render paths (libmpv tracks and the
+ * embed overlay) expect UTF-8.
+ *
+ * Strategy: keep the bytes if they already decode as valid UTF-8 (the common
+ * case, including plain ASCII); otherwise decode them as Windows-1256 and
+ * return UTF-8. Node ships full-ICU, so the `windows-1256` decoder is built in
+ * — no extra dependency. A leading UTF-8 BOM, if present, is stripped.
+ */
+function normalizeSubtitleToUtf8(input: Buffer): Buffer {
+  let buf = input
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    buf = buf.subarray(3)
+  }
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    return Buffer.from(text, 'utf-8')
+  } catch {
+    try {
+      const text = new TextDecoder('windows-1256').decode(buf)
+      return Buffer.from(text, 'utf-8')
+    } catch {
+      /* Unknown decoder on this build — leave the bytes untouched. */
+      return buf
+    }
+  }
+}
 
 /** Accepted video container extensions for uploaded room videos. */
 const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'webm', 'ogv', 'ogg', 'mov']
@@ -264,7 +295,7 @@ export default class RoomsApiController {
 
     if (room.roomType === 'torrent') {
       /** Tear down the swarm and delete its cached pieces under storage/torrents. */
-      removeRoomTorrent(room)
+      await removeRoomTorrent(room)
     } else if (room.videoFilename) {
       try {
         await unlink(app.makePath('storage/videos', basename(room.videoFilename)))
@@ -318,15 +349,34 @@ export default class RoomsApiController {
 
     const ext = (subtitle.extname || 'srt').toLowerCase()
     const filename = `${room.slug}.${ext}`
+    const destPath = app.makePath('storage/subtitles', filename)
     try {
       await subtitle.move(app.makePath('storage/subtitles'), { name: filename, overwrite: true })
     } catch {
       return response.status(500).json({ success: false, message: 'subtitle_save_failed' })
     }
 
+    /* Normalize the stored bytes to UTF-8 so Arabic (and other non-Latin)
+       subtitles aren't shown as symbols. Best-effort: a read/write hiccup must
+       not fail the upload — the original file is still usable. */
+    try {
+      const original = await readFile(destPath)
+      const normalized = normalizeSubtitleToUtf8(original)
+      if (!normalized.equals(original)) await writeFile(destPath, normalized)
+    } catch {
+      /* leave the file as uploaded */
+    }
+
     room.subtitleFilename = filename
+    /* A new subtitle is a fresh sync baseline — drop any prior timing offset. */
+    room.subtitleOffset = 0
     await room.save()
     io?.to(room.slug).emit('subtitle_changed', { filename })
+    io?.to(room.slug).emit('subtitle_settings_changed', {
+      offset: 0,
+      weight: room.subtitleWeight ?? 500,
+      size: room.subtitleSize ?? 28,
+    })
 
     return response.json({ success: true, data: { filename } })
   }
