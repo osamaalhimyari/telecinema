@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["REPLACE_WITH_APPLE_TEAM_ID.com.example.watchAprtyApp"],
+        "components": [
+          { "/": "/room/*", "comment": "Open room links in the TeleCinema app" }
+        ]
+      }
+    ]
+  }
+}

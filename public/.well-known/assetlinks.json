@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.example.watch_aprty_app",
+      "sha256_cert_fingerprints": [
+        "A3:F7:AA:1D:27:65:78:48:5D:61:CB:1C:F4:43:43:63:25:9B:3F:8A:E7:8A:3A:40:D3:86:D2:EE:5F:52:AD:74"
+      ]
+    }
+  }
+]

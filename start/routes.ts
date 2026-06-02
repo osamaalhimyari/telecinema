@@ -7,9 +7,11 @@
 |
 */
 
+import { readFile } from 'node:fs/promises'
 import { middleware } from '#start/kernel'
 import { controllers } from '#generated/controllers'
 import router from '@adonisjs/core/services/router'
+import app from '@adonisjs/core/services/app'
 
 const RoomsController = () => import('#controllers/rooms_controller')
 const VideosController = () => import('#controllers/videos_controller')
@@ -20,6 +22,31 @@ const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
 | Watch-party routes
 |--------------------------------------------------------------------------
 */
+
+/*
+|--------------------------------------------------------------------------
+| Mobile deep-link association files
+|--------------------------------------------------------------------------
+|
+| Served so that a shared room link (https://<host>/room/:slug) opens the
+| TeleCinema app instead of this website when the app is installed:
+|   * Android App Links   → /.well-known/assetlinks.json
+|   * iOS Universal Links → /.well-known/apple-app-site-association
+|
+| Both must be returned as application/json over HTTPS with no redirect. The
+| static file middleware ignores dotfiles, so these explicit routes own the
+| paths. The JSON lives under public/.well-known/ so the signing fingerprint
+| (Android) and Apple Team ID can be edited without touching code.
+*/
+router.get('/.well-known/assetlinks.json', async ({ response }) => {
+  const raw = await readFile(app.makePath('public/.well-known/assetlinks.json'), 'utf-8')
+  // Parse + return the object so AdonisJS emits application/json itself.
+  return response.json(JSON.parse(raw))
+})
+router.get('/.well-known/apple-app-site-association', async ({ response }) => {
+  const raw = await readFile(app.makePath('public/.well-known/apple-app-site-association'), 'utf-8')
+  return response.json(JSON.parse(raw))
+})
 
 /**
  * Home — grid of every available room.
