@@ -5,7 +5,9 @@
 
 export const controllers = {
   api: {
+    FavoritesApi: () => import('#controllers/api/favorites_api_controller'),
     RoomsApi: () => import('#controllers/api/rooms_api_controller'),
+    TopcinemaApi: () => import('#controllers/api/topcinema_api_controller'),
   },
   NewAccount: () => import('#controllers/new_account_controller'),
   Rooms: () => import('#controllers/rooms_controller'),

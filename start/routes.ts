@@ -16,6 +16,8 @@ import app from '@adonisjs/core/services/app'
 const RoomsController = () => import('#controllers/rooms_controller')
 const VideosController = () => import('#controllers/videos_controller')
 const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
+const FavoritesApiController = () => import('#controllers/api/favorites_api_controller')
+const TopcinemaApiController = () => import('#controllers/api/topcinema_api_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -116,6 +118,17 @@ router
     router
       .post('/rooms/:slug/subtitle', [RoomsApiController, 'uploadSubtitle'])
       .as('api.rooms.subtitle')
+
+    // Account-less global favorites — saved movies/series from the catalogue.
+    router.get('/favorites', [FavoritesApiController, 'index']).as('api.favorites.index')
+    router.post('/favorites', [FavoritesApiController, 'store']).as('api.favorites.store')
+    router
+      .delete('/favorites/:mediaId', [FavoritesApiController, 'destroy'])
+      .as('api.favorites.destroy')
+
+    // Isolated "second way" — topcinema direct-download source resolution.
+    router.get('/topcinema/series', [TopcinemaApiController, 'series']).as('api.topcinema.series')
+    router.get('/topcinema/resolve', [TopcinemaApiController, 'resolve']).as('api.topcinema.resolve')
   })
   .prefix('/api')
 
