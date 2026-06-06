@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=21" />
+    <link rel="stylesheet" href="/css/app.css?v=22" />
     <script src="/js/guard.js?v=21"></script>
   </head>
   <body class="page-room">
@@ -85,12 +85,6 @@
               </div>
             </div>
 
-            {{-- Subtitle overlay — JS writes the current cue text into the
-                 inner span. Empty by default; rendered in front of the
-                 iframe (and the paused overlay) so it stays readable. --}}
-            <div class="subtitle-overlay" id="subtitleOverlay">
-              <span class="subtitle-text" id="subtitleText"></span>
-            </div>
           @elseif(room.roomType === 'torrent')
             {{-- Torrent rooms stream peer-to-peer IN THE BROWSER (WebTorrent
                  over WebRTC), like the mobile app streams on-device — the
@@ -120,6 +114,14 @@
             ></video>
           @end
 
+          {{-- Subtitle overlay — JS writes the current cue text into the inner
+               span and applies the room's shared weight/size. Empty by default;
+               rendered in front of the video/iframe so it stays readable on
+               every room type. --}}
+          <div class="subtitle-overlay" id="subtitleOverlay">
+            <span class="subtitle-text" id="subtitleText"></span>
+          </div>
+
           {{-- Top controls: speaking indicator + viewer count + fullscreen --}}
           <div class="top-controls" id="topControls">
             <span class="voice-indicator" id="voiceIndicator" aria-live="polite">
@@ -144,13 +146,6 @@
               >🎞</button>
               <button
                 class="ctrl-btn"
-                id="subtitleBtn"
-                type="button"
-                aria-label="Upload subtitles"
-                title="Upload subtitles (.srt or .vtt)"
-              >CC</button>
-              <button
-                class="ctrl-btn"
                 id="resyncBtn"
                 type="button"
                 aria-label="Resync everyone to the room time"
@@ -172,6 +167,22 @@
                 title="Picture-in-Picture"
               >⧉</button>
             @end
+            {{-- Subtitles work on every room type now: file/torrent rooms get a
+                 JS overlay over the <video>, external rooms over the iframe. --}}
+            <button
+              class="ctrl-btn"
+              id="subtitleBtn"
+              type="button"
+              aria-label="Subtitles"
+              title="Subtitles — search online or upload (.srt or .vtt)"
+            >CC</button>
+            <button
+              class="ctrl-btn"
+              id="subtitleSettingsBtn"
+              type="button"
+              aria-label="Subtitle settings"
+              title="Subtitle settings — timing, thickness, size"
+            >⚙</button>
             <button class="ctrl-btn" id="fullscreen" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
           </div>
 
@@ -496,18 +507,57 @@
         </div>
       </div>
 
-      {{-- Subtitle upload modal: SRT/VTT file picker that posts to
-           /room/:slug/subtitle. Success broadcasts to the room. --}}
-      <div class="modal" id="subtitleModal" aria-hidden="true">
-        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="subtitleModalTitle">
-          <h2 class="modal-title" id="subtitleModalTitle">Upload subtitles</h2>
-          <p class="modal-text">
-            Pick an .srt or .vtt file. We render it on top of the embed so it shows for everyone.
-            Timing follows the room clock — if the iframe itself drifts, adjust the offset.
-          </p>
+    @end
 
+    {{-- Subtitle modal — available on every room type. Two ways to get a
+         subtitle onto the room: search OpenSubtitles (proxied by the server to
+         dodge CORS) or upload an .srt/.vtt. Either path stores the file on the
+         room and broadcasts it to everyone. --}}
+    <div class="modal" id="subtitleModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="subtitleModalTitle">
+        <h2 class="modal-title" id="subtitleModalTitle">Subtitles</h2>
+
+        <div class="sub-section">
+          <div class="sub-section-title">Search online</div>
+          <div class="sub-search-row">
+            <input
+              class="field-input"
+              id="subtitleQuery"
+              type="text"
+              maxlength="120"
+              placeholder="Movie or show name…"
+            />
+            <select class="field-input sub-lang" id="subtitleLang" aria-label="Subtitle language"></select>
+          </div>
+          <div class="sub-search-row">
+            <input
+              class="field-input sub-se"
+              id="subtitleSeason"
+              type="number"
+              min="1"
+              max="99"
+              placeholder="Season"
+              aria-label="Season (optional)"
+            />
+            <input
+              class="field-input sub-se"
+              id="subtitleEpisode"
+              type="number"
+              min="1"
+              max="999"
+              placeholder="Episode"
+              aria-label="Episode (optional)"
+            />
+            <button class="btn-primary sub-search-btn" id="subtitleSearchBtn" type="button">Search</button>
+          </div>
+          <div class="sub-results" id="subtitleResults" aria-live="polite"></div>
+        </div>
+
+        <div class="sub-divider"><span>or</span></div>
+
+        <div class="sub-section">
+          <div class="sub-section-title">Upload a file</div>
           <div class="field">
-            <label class="field-label" for="subtitleFile">Subtitle file</label>
             <input
               class="field-input"
               id="subtitleFile"
@@ -515,29 +565,90 @@
               accept=".srt,.vtt,text/vtt,application/x-subrip"
             />
           </div>
-
-          <div class="field">
-            <label class="field-label" for="subtitleOffset">
-              Offset <span class="field-hint">— this device only, in seconds</span>
-            </label>
-            <input
-              class="field-input"
-              id="subtitleOffset"
-              type="number"
-              step="0.5"
-              value="0"
-            />
-          </div>
-
-          <p class="form-error" id="subtitleModalError" hidden></p>
-
-          <div class="modal-actions">
-            <button class="btn-ghost" id="cancelSubtitle" type="button">Close</button>
-            <button class="btn-primary" id="confirmSubtitle" type="button">Upload</button>
+          <div class="modal-actions modal-actions--tight">
+            <button class="btn-ghost" id="confirmSubtitle" type="button">Upload file</button>
           </div>
         </div>
+
+        <p class="form-error" id="subtitleModalError" hidden></p>
+
+        <div class="modal-actions">
+          <button class="btn-ghost" id="cancelSubtitle" type="button">Close</button>
+        </div>
       </div>
-    @end
+    </div>
+
+    {{-- Subtitle settings modal — the room's shared timing offset, text
+         thickness and size. Mirrors the mobile app's settings sheet and is
+         wired to the same set_subtitle_settings socket event, so dragging a
+         slider updates the look for everyone in the room. --}}
+    <div class="modal" id="subtitleSettingsModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="subtitleSettingsTitle">
+        <h2 class="modal-title" id="subtitleSettingsTitle">Subtitle settings</h2>
+        <p class="modal-text">These apply for everyone in the room.</p>
+
+        <div class="sub-preview"><span class="subtitle-text" id="subtitlePreviewText">AaBb — أبجد</span></div>
+
+        <div class="sub-setting">
+          <div class="sub-setting-head">
+            <span class="field-label">Timing</span>
+            <span class="sub-setting-value" id="subtitleTimingLabel">In sync</span>
+          </div>
+          <input
+            class="sub-range"
+            id="subtitleTimingRange"
+            type="range"
+            min="-60"
+            max="60"
+            step="0.1"
+            value="0"
+            aria-label="Subtitle timing offset"
+          />
+          <div class="sub-setting-foot">
+            <span class="field-hint">Negative = earlier, positive = later</span>
+            <button class="btn-ghost sub-reset" id="subtitleTimingReset" type="button">Reset</button>
+          </div>
+        </div>
+
+        <div class="sub-setting">
+          <div class="sub-setting-head">
+            <span class="field-label">Thickness</span>
+            <span class="sub-setting-value" id="subtitleWeightLabel">500</span>
+          </div>
+          <input
+            class="sub-range"
+            id="subtitleWeightRange"
+            type="range"
+            min="100"
+            max="900"
+            step="100"
+            value="500"
+            aria-label="Subtitle thickness"
+          />
+        </div>
+
+        <div class="sub-setting">
+          <div class="sub-setting-head">
+            <span class="field-label">Size</span>
+            <span class="sub-setting-value" id="subtitleSizeLabel">28</span>
+          </div>
+          <input
+            class="sub-range"
+            id="subtitleSizeRange"
+            type="range"
+            min="14"
+            max="44"
+            step="1"
+            value="28"
+            aria-label="Subtitle size"
+          />
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-primary" id="closeSubtitleSettings" type="button">Done</button>
+        </div>
+      </div>
+    </div>
 
     @if(room.roomType === 'torrent')
       {{-- Browser BitTorrent engine — only loaded for torrent rooms, which
@@ -566,6 +677,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=23"></script>
+    <script src="/js/room.js?v=24"></script>
   </body>
 </html>

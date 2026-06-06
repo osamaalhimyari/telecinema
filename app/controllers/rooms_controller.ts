@@ -1,9 +1,10 @@
-import { unlink } from 'node:fs/promises'
+import { unlink, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
+import { searchOpenSubtitles, downloadOpenSubtitle } from '#services/opensubtitles'
 import {
   startTorrentRoom,
   startMagnetDownload,
@@ -55,7 +56,7 @@ export default class RoomsController {
    * Home page — list every available room as a grid of cards.
    */
   async index({ view }: HttpContext) {
-    const rooms = await Room.query().orderBy('id', 'asc')
+    const rooms = await Room.query().orderBy('id', 'desc')
     return view.render('home', { rooms })
   }
 
@@ -568,5 +569,101 @@ export default class RoomsController {
      */
     response.header('Content-Type', 'text/vtt; charset=utf-8')
     return response.download(app.makePath('storage/subtitles', filename))
+  }
+
+  /**
+   * Searches OpenSubtitles for a room. The browser cannot call the legacy
+   * OpenSubtitles API directly (CORS), so this proxies the request and returns
+   * a trimmed list of candidates the room client renders. Pure read — no room
+   * state changes, so any viewer may search.
+   */
+  async searchSubtitles({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ error: 'That room no longer exists.' })
+    }
+
+    const lang = String(request.input('lang', 'eng')).trim() || 'eng'
+    const query = String(request.input('query', '')).trim()
+    const imdbId = String(request.input('imdbId', '')).trim()
+    const seasonRaw = Number.parseInt(String(request.input('season', '')), 10)
+    const episodeRaw = Number.parseInt(String(request.input('episode', '')), 10)
+    const season = Number.isFinite(seasonRaw) && seasonRaw > 0 ? seasonRaw : undefined
+    const episode = Number.isFinite(episodeRaw) && episodeRaw > 0 ? episodeRaw : undefined
+
+    if (query.length === 0 && imdbId.length === 0) {
+      return response.status(400).json({ error: 'Type something to search for.' })
+    }
+
+    try {
+      const results = await searchOpenSubtitles({ imdbId, query, season, episode, lang })
+      /* Top matches only — already ranked by download count in the service. */
+      return response.json({ results: results.slice(0, 40) })
+    } catch {
+      return response
+        .status(502)
+        .json({ error: 'Subtitle search is unavailable right now — try again shortly.' })
+    }
+  }
+
+  /**
+   * Attaches a subtitle chosen from a previous OpenSubtitles search. The server
+   * downloads + gunzips + UTF-8-normalizes the file, stores it like an upload,
+   * and broadcasts `subtitle_changed` so every viewer fetches it — mirroring
+   * the manual upload path.
+   */
+  async attachSubtitle({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ error: 'That room no longer exists.' })
+    }
+
+    const downloadLink = String(request.input('downloadLink', '')).trim()
+    const format = String(request.input('format', 'srt')).toLowerCase()
+    const ext = SUBTITLE_EXTENSIONS.includes(format) ? format : 'srt'
+    if (downloadLink.length === 0) {
+      return response.status(400).json({ error: 'No subtitle was selected.' })
+    }
+
+    let bytes: Buffer
+    try {
+      bytes = await downloadOpenSubtitle(downloadLink)
+    } catch {
+      return response
+        .status(502)
+        .json({ error: 'That subtitle could not be downloaded — try another one.' })
+    }
+
+    /* Replace any previous subtitle on disk before writing the new one. */
+    if (room.subtitleFilename) {
+      try {
+        await unlink(app.makePath('storage/subtitles', basename(room.subtitleFilename)))
+      } catch {
+        /* file already gone — nothing to clean up */
+      }
+    }
+
+    const filename = `${room.slug}.${ext}`
+    try {
+      await writeFile(app.makePath('storage/subtitles', filename), bytes)
+    } catch {
+      return response
+        .status(500)
+        .json({ error: 'The subtitle file could not be saved. Please try again.' })
+    }
+
+    room.subtitleFilename = filename
+    /* A new subtitle is a fresh sync baseline — drop any prior timing offset. */
+    room.subtitleOffset = 0
+    await room.save()
+
+    io?.to(room.slug).emit('subtitle_changed', { filename })
+    io?.to(room.slug).emit('subtitle_settings_changed', {
+      offset: 0,
+      weight: room.subtitleWeight ?? 500,
+      size: room.subtitleSize ?? 28,
+    })
+
+    return response.json({ filename })
   }
 }

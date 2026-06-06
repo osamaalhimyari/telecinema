@@ -91,6 +91,10 @@ router.get('/stream/:slug', [VideosController, 'streamTorrent']).as('videos.stre
  * stored subtitle files to the client overlay.
  */
 router.post('/room/:slug/subtitle', [RoomsController, 'uploadSubtitle']).as('rooms.subtitle')
+router.get('/room/:slug/subtitles/search', [RoomsController, 'searchSubtitles']).as('rooms.subtitles.search')
+router
+  .post('/room/:slug/subtitle/opensubtitles', [RoomsController, 'attachSubtitle'])
+  .as('rooms.subtitle.attach')
 router.put('/room/:slug', [RoomsController, 'update']).as('rooms.update')
 router.get('/subtitles/:filename', [RoomsController, 'streamSubtitle']).as('subtitles.stream')
 

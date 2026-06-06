@@ -53,6 +53,7 @@ const shieldConfig = defineConfig({
       return (
         pattern === '/room/:slug' ||
         pattern === '/room/:slug/subtitle' ||
+        pattern === '/room/:slug/subtitle/opensubtitles' ||
         pattern === '/room/:slug/unlock' ||
         pattern.startsWith('/api/')
       )

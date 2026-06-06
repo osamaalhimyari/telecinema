@@ -90,7 +90,7 @@ export default class RoomsApiController {
 
   /** GET /api/rooms — every available room, oldest first (matches the web grid). */
   async index({ response }: HttpContext) {
-    const rooms = await Room.query().orderBy('id', 'asc')
+    const rooms = await Room.query().orderBy('id', 'desc')
     return response.json({
       success: true,
       data: { rooms: rooms.map((r) => this.serialize(r)) },

@@ -1437,257 +1437,566 @@
       setSubtitleSource(null)
     })
 
-    /* ----------------------------------------------------------------------
-       Subtitles — upload an SRT/VTT and render an overlay on top of the
-       iframe, driven by the virtual playhead. The overlay is rendered by
-       us because cross-origin embeds cannot host a `<track>` of ours.
-       ---------------------------------------------------------------------- */
-
-    var subtitleBtn = document.getElementById('subtitleBtn')
-    var subtitleModal = document.getElementById('subtitleModal')
-    var subtitleFile = document.getElementById('subtitleFile')
-    var subtitleOffsetInput = document.getElementById('subtitleOffset')
-    var confirmSubtitle = document.getElementById('confirmSubtitle')
-    var cancelSubtitle = document.getElementById('cancelSubtitle')
-    var subtitleModalError = document.getElementById('subtitleModalError')
-    var subtitleText = document.getElementById('subtitleText')
-
-    /** Parsed cue list, sorted by start time. */
-    var subtitleCues = []
-    /** Per-viewer offset in seconds; persisted to localStorage by room slug. */
-    var subtitleOffset = 0
-    /** Last rendered cue index — caches the binary-search starting point. */
-    var lastCueIndex = -1
-
-    var OFFSET_KEY = 'wp_sub_offset_' + slug
-    try {
-      var savedOffset = parseFloat(localStorage.getItem(OFFSET_KEY) || '0')
-      if (isFinite(savedOffset)) subtitleOffset = savedOffset
-      if (subtitleOffsetInput) subtitleOffsetInput.value = String(subtitleOffset)
-    } catch (e) {
-      /* localStorage unavailable — keep offset at 0 */
-    }
-
-    /**
-     * Parses an SRT or WebVTT string into a sorted `{start, end, text}` cue
-     * list. Tolerant of either separator (`,` for SRT, `.` for VTT) and of
-     * stray cue numbers / VTT headers between cues.
-     */
-    function parseSubtitles(text) {
-      text = String(text || '').replace(/\r\n?/g, '\n').replace(/^﻿/, '')
-
-      var lines = text.split('\n')
-      var tsRe =
-        /^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/
-
-      function toSeconds(h, m, s, frac) {
-        return (
-          (parseInt(h, 10) || 0) * 3600 +
-          parseInt(m, 10) * 60 +
-          parseInt(s, 10) +
-          parseFloat('0.' + (frac || '0'))
-        )
-      }
-
-      var cues = []
-      var i = 0
-      while (i < lines.length) {
-        var m = tsRe.exec(lines[i])
-        if (m) {
-          var start = toSeconds(m[1], m[2], m[3], m[4])
-          var end = toSeconds(m[5], m[6], m[7], m[8])
-          i++
-          var body = []
-          while (i < lines.length && lines[i].trim() !== '') {
-            // Drop simple HTML/VTT styling tags so plain text renders.
-            body.push(lines[i].replace(/<[^>]+>/g, ''))
-            i++
-          }
-          if (body.length > 0 && end > start) {
-            cues.push({ start: start, end: end, text: body.join('\n') })
-          }
-        } else {
-          i++
-        }
-      }
-
-      cues.sort(function (a, b) {
-        return a.start - b.start
-      })
-      return cues
-    }
-
-    /**
-     * Loads a subtitle file by name (the bare filename stored on the room).
-     * Pass `null` to clear the overlay entirely.
-     */
-    function setSubtitleSource(filename) {
-      if (!filename) {
-        subtitleCues = []
-        lastCueIndex = -1
-        subtitleText.textContent = ''
-        return
-      }
-
-      var url = '/subtitles/' + encodeURIComponent(filename) + '?t=' + Date.now()
-      fetch(url, { credentials: 'same-origin' })
-        .then(function (res) {
-          if (!res.ok) throw new Error('http')
-          return res.text()
-        })
-        .then(function (text) {
-          subtitleCues = parseSubtitles(text)
-          lastCueIndex = -1
-        })
-        .catch(function () {
-          subtitleCues = []
-          lastCueIndex = -1
-          subtitleText.textContent = ''
-        })
-    }
-
-    /**
-     * Picks the cue at the given time. Linear scan with a "remember the
-     * last hit" optimization — subtitle files almost always step forward,
-     * so we usually find the next cue within one or two iterations.
-     */
-    function findCue(time) {
-      if (subtitleCues.length === 0) return null
-
-      var n = subtitleCues.length
-      // Try a small window around the last hit before falling back to scan.
-      if (lastCueIndex >= 0 && lastCueIndex < n) {
-        var c = subtitleCues[lastCueIndex]
-        if (time >= c.start && time < c.end) return c
-      }
-
-      for (var i = 0; i < n; i++) {
-        var cue = subtitleCues[i]
-        if (time < cue.start) return null
-        if (time < cue.end) {
-          lastCueIndex = i
-          return cue
-        }
-      }
-      return null
-    }
-
-    function renderSubtitle() {
-      if (subtitleCues.length === 0) {
-        if (subtitleText.textContent !== '') subtitleText.textContent = ''
-        return
-      }
-      var cue = findCue(vplay.currentTime + subtitleOffset)
-      var next = cue ? cue.text : ''
-      if (subtitleText.textContent !== next) subtitleText.textContent = next
-    }
-
-    // A dedicated render loop — the playback tick only runs while playing,
-    // but subtitles need to refresh on offset/seek changes even while paused.
-    setInterval(renderSubtitle, 150)
-
-    /* ---- Modal wiring + upload form ----------------------------------- */
-
-    function openSubtitleModal() {
-      subtitleModalError.hidden = true
-      subtitleFile.value = ''
-      subtitleOffsetInput.value = String(subtitleOffset)
-      subtitleModal.classList.add('is-open')
-      subtitleModal.setAttribute('aria-hidden', 'false')
-    }
-
-    function closeSubtitleModal() {
-      subtitleModal.classList.remove('is-open')
-      subtitleModal.setAttribute('aria-hidden', 'true')
-    }
-
-    if (subtitleBtn) {
-      subtitleBtn.addEventListener('click', openSubtitleModal)
-      cancelSubtitle.addEventListener('click', closeSubtitleModal)
-      subtitleModal.addEventListener('click', function (e) {
-        if (e.target === subtitleModal) closeSubtitleModal()
-      })
-
-      subtitleOffsetInput.addEventListener('input', function () {
-        var v = parseFloat(subtitleOffsetInput.value)
-        if (!isFinite(v)) v = 0
-        subtitleOffset = v
-        try {
-          localStorage.setItem(OFFSET_KEY, String(v))
-        } catch (e) {
-          /* ignore */
-        }
-        // Force a re-evaluation against the new offset on the next tick.
-        lastCueIndex = -1
-      })
-
-      confirmSubtitle.addEventListener('click', function () {
-        var file = subtitleFile.files && subtitleFile.files[0]
-        if (!file) {
-          subtitleModalError.textContent = 'Choose an .srt or .vtt file first.'
-          subtitleModalError.hidden = false
-          return
-        }
-
-        var form = new FormData()
-        form.append('subtitle', file)
-
-        var xhr = new XMLHttpRequest()
-        xhr.open('POST', '/room/' + encodeURIComponent(slug) + '/subtitle')
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
-        xhr.setRequestHeader('Accept', 'application/json')
-        confirmSubtitle.disabled = true
-        confirmSubtitle.textContent = 'Uploading…'
-
-        xhr.addEventListener('load', function () {
-          confirmSubtitle.disabled = false
-          confirmSubtitle.textContent = 'Upload'
-          var body = {}
-          try {
-            body = JSON.parse(xhr.responseText)
-          } catch (e) {}
-
-          if (xhr.status >= 200 && xhr.status < 300 && body.filename) {
-            // The server already broadcast `subtitle_changed`, which our
-            // socket handler picks up — no need to load it here ourselves.
-            closeSubtitleModal()
-          } else {
-            subtitleModalError.textContent =
-              body.error || 'Upload failed (HTTP ' + xhr.status + ').'
-            subtitleModalError.hidden = false
-          }
-        })
-        xhr.addEventListener('error', function () {
-          confirmSubtitle.disabled = false
-          confirmSubtitle.textContent = 'Upload'
-          subtitleModalError.textContent = 'The upload failed — check your connection.'
-          subtitleModalError.hidden = false
-        })
-        xhr.send(form)
-      })
-    }
-
-    /** Broadcast: a new subtitle was uploaded. Each client refetches it. */
-    socket.on('subtitle_changed', function (payload) {
-      var filename = payload && typeof payload.filename === 'string' ? payload.filename : null
-      setSubtitleSource(filename)
-    })
-
     /**
      * The template loads the iframe with the raw embed URL so a slow first
-     * sync still shows *something*. As soon as a sync arrives, the iframe
-     * is brought in line with the room's master state. We also kick off a
-     * subtitle load here if the room already has one persisted, and a
-     * provider setup so YouTube/Vimeo embeds attach their SDK immediately.
+     * sync still shows *something*. As soon as a sync arrives, the iframe is
+     * brought in line with the room's master state. Provider setup lets
+     * YouTube/Vimeo embeds attach their SDK immediately.
      */
     iframeApplied.isPlaying = true
     iframeApplied.currentTime = 0
     pausedOverlay.classList.remove('is-visible')
     updateExternalUI()
     setupProvider()
-
-    if (window.ROOM_SUBTITLE) setSubtitleSource(window.ROOM_SUBTITLE)
   }
+
+  /* ------------------------------------------------------------------------
+     Subtitles — available on EVERY room type. File/torrent rooms get a JS
+     overlay rendered over the <video>; external rooms over the iframe (a
+     cross-origin embed cannot host a <track> of ours). The cue text, the
+     room-shared timing offset and the shared weight/size are all driven from
+     here. A subtitle reaches the room either by searching OpenSubtitles
+     (proxied by the server to dodge CORS) or by uploading an .srt/.vtt; both
+     paths store the file on the room and broadcast `subtitle_changed`. The
+     timing/weight/size are shared via `set_subtitle_settings`, so adjusting a
+     slider updates the look for everyone — matching the mobile app.
+     ------------------------------------------------------------------------ */
+
+  var subtitleText = document.getElementById('subtitleText')
+  var subtitleBtn = document.getElementById('subtitleBtn')
+  var subtitleSettingsBtn = document.getElementById('subtitleSettingsBtn')
+  var subtitleModal = document.getElementById('subtitleModal')
+  var subtitleSettingsModal = document.getElementById('subtitleSettingsModal')
+  var subtitleModalError = document.getElementById('subtitleModalError')
+
+  // Search controls
+  var subtitleQuery = document.getElementById('subtitleQuery')
+  var subtitleLang = document.getElementById('subtitleLang')
+  var subtitleSeason = document.getElementById('subtitleSeason')
+  var subtitleEpisode = document.getElementById('subtitleEpisode')
+  var subtitleSearchBtn = document.getElementById('subtitleSearchBtn')
+  var subtitleResults = document.getElementById('subtitleResults')
+
+  // Upload control
+  var subtitleFile = document.getElementById('subtitleFile')
+  var confirmSubtitle = document.getElementById('confirmSubtitle')
+  var cancelSubtitle = document.getElementById('cancelSubtitle')
+
+  // Settings controls
+  var subtitlePreviewText = document.getElementById('subtitlePreviewText')
+  var subtitleTimingRange = document.getElementById('subtitleTimingRange')
+  var subtitleTimingLabel = document.getElementById('subtitleTimingLabel')
+  var subtitleTimingReset = document.getElementById('subtitleTimingReset')
+  var subtitleWeightRange = document.getElementById('subtitleWeightRange')
+  var subtitleWeightLabel = document.getElementById('subtitleWeightLabel')
+  var subtitleSizeRange = document.getElementById('subtitleSizeRange')
+  var subtitleSizeLabel = document.getElementById('subtitleSizeLabel')
+  var closeSubtitleSettings = document.getElementById('closeSubtitleSettings')
+
+  /** Parsed cue list, sorted by start time. */
+  var subtitleCues = []
+  /** Last rendered cue index — caches the linear-scan starting point. */
+  var lastCueIndex = -1
+  /** Room-shared display settings (seeded/updated by `subtitle_settings_changed`). */
+  var subtitleOffset = 0
+  var subtitleWeight = 500
+  var subtitleSize = 28
+
+  /** Languages offered in the search picker — ISO 639-2/B, mirroring the app. */
+  var SUBTITLE_LANGS = [
+    { id: 'eng', label: 'English' },
+    { id: 'ara', label: 'Arabic' },
+    { id: 'spa', label: 'Spanish' },
+    { id: 'fre', label: 'French' },
+    { id: 'ger', label: 'German' },
+    { id: 'ita', label: 'Italian' },
+    { id: 'por', label: 'Portuguese' },
+    { id: 'pob', label: 'Portuguese (BR)' },
+    { id: 'rus', label: 'Russian' },
+    { id: 'dut', label: 'Dutch' },
+    { id: 'pol', label: 'Polish' },
+    { id: 'swe', label: 'Swedish' },
+    { id: 'tur', label: 'Turkish' },
+    { id: 'hin', label: 'Hindi' },
+    { id: 'heb', label: 'Hebrew' },
+    { id: 'gre', label: 'Greek' },
+    { id: 'rum', label: 'Romanian' },
+    { id: 'cze', label: 'Czech' },
+    { id: 'dan', label: 'Danish' },
+    { id: 'fin', label: 'Finnish' },
+    { id: 'nor', label: 'Norwegian' },
+    { id: 'kor', label: 'Korean' },
+    { id: 'jpn', label: 'Japanese' },
+    { id: 'chi', label: 'Chinese' },
+    { id: 'ind', label: 'Indonesian' },
+    { id: 'vie', label: 'Vietnamese' },
+    { id: 'tha', label: 'Thai' },
+    { id: 'ukr', label: 'Ukrainian' },
+    { id: 'fas', label: 'Persian' }
+  ]
+
+  function populateLanguages() {
+    if (!subtitleLang || subtitleLang.options.length > 0) return
+    for (var i = 0; i < SUBTITLE_LANGS.length; i++) {
+      var opt = document.createElement('option')
+      opt.value = SUBTITLE_LANGS[i].id
+      opt.textContent = SUBTITLE_LANGS[i].label
+      subtitleLang.appendChild(opt)
+    }
+    subtitleLang.value = 'eng'
+  }
+
+  /** Current playhead time in seconds, whichever player this room uses. */
+  function subtitlePlayheadTime() {
+    if (isExternal) return vplay ? vplay.currentTime : 0
+    return video ? video.currentTime : 0
+  }
+
+  /** Pushes the shared weight/size onto the overlay (and the settings preview). */
+  function applySubtitleStyle() {
+    if (subtitleText) {
+      subtitleText.style.fontSize = subtitleSize + 'px'
+      subtitleText.style.fontWeight = String(subtitleWeight)
+    }
+    if (subtitlePreviewText) {
+      subtitlePreviewText.style.fontSize = subtitleSize + 'px'
+      subtitlePreviewText.style.fontWeight = String(subtitleWeight)
+    }
+  }
+
+  /**
+   * Parses an SRT or WebVTT string into a sorted `{start, end, text}` cue list.
+   * Tolerant of either separator (`,` for SRT, `.` for VTT) and of stray cue
+   * numbers / VTT headers between cues.
+   */
+  function parseSubtitles(text) {
+    text = String(text || '').replace(/\r\n?/g, '\n').replace(/^﻿/, '')
+
+    var lines = text.split('\n')
+    var tsRe =
+      /^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/
+
+    function toSeconds(h, m, s, frac) {
+      return (
+        (parseInt(h, 10) || 0) * 3600 +
+        parseInt(m, 10) * 60 +
+        parseInt(s, 10) +
+        parseFloat('0.' + (frac || '0'))
+      )
+    }
+
+    var cues = []
+    var i = 0
+    while (i < lines.length) {
+      var m = tsRe.exec(lines[i])
+      if (m) {
+        var start = toSeconds(m[1], m[2], m[3], m[4])
+        var end = toSeconds(m[5], m[6], m[7], m[8])
+        i++
+        var body = []
+        while (i < lines.length && lines[i].trim() !== '') {
+          // Drop simple HTML/VTT styling tags so plain text renders.
+          body.push(lines[i].replace(/<[^>]+>/g, ''))
+          i++
+        }
+        if (body.length > 0 && end > start) {
+          cues.push({ start: start, end: end, text: body.join('\n') })
+        }
+      } else {
+        i++
+      }
+    }
+
+    cues.sort(function (a, b) {
+      return a.start - b.start
+    })
+    return cues
+  }
+
+  /**
+   * Loads a subtitle file by name (the bare filename stored on the room).
+   * Pass `null` to clear the overlay entirely.
+   */
+  function setSubtitleSource(filename) {
+    if (!filename) {
+      subtitleCues = []
+      lastCueIndex = -1
+      if (subtitleText) subtitleText.textContent = ''
+      return
+    }
+
+    var url = '/subtitles/' + encodeURIComponent(filename) + '?t=' + Date.now()
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('http')
+        return res.text()
+      })
+      .then(function (text) {
+        subtitleCues = parseSubtitles(text)
+        lastCueIndex = -1
+      })
+      .catch(function () {
+        subtitleCues = []
+        lastCueIndex = -1
+        if (subtitleText) subtitleText.textContent = ''
+      })
+  }
+
+  /**
+   * Picks the cue at the given time. Linear scan with a "remember the last hit"
+   * optimization — subtitle files almost always step forward, so we usually
+   * find the next cue within one or two iterations.
+   */
+  function findCue(time) {
+    if (subtitleCues.length === 0) return null
+
+    var n = subtitleCues.length
+    // Try a small window around the last hit before falling back to scan.
+    if (lastCueIndex >= 0 && lastCueIndex < n) {
+      var c = subtitleCues[lastCueIndex]
+      if (time >= c.start && time < c.end) return c
+    }
+
+    for (var i = 0; i < n; i++) {
+      var cue = subtitleCues[i]
+      if (time < cue.start) return null
+      if (time < cue.end) {
+        lastCueIndex = i
+        return cue
+      }
+    }
+    return null
+  }
+
+  function renderSubtitle() {
+    if (!subtitleText) return
+    if (subtitleCues.length === 0) {
+      if (subtitleText.textContent !== '') subtitleText.textContent = ''
+      return
+    }
+    var cue = findCue(subtitlePlayheadTime() + subtitleOffset)
+    var next = cue ? cue.text : ''
+    if (subtitleText.textContent !== next) subtitleText.textContent = next
+  }
+
+  // A dedicated render loop — the playback tick only runs while playing, but
+  // subtitles need to refresh on offset/seek changes even while paused.
+  setInterval(renderSubtitle, 150)
+
+  /* ---- Shared settings: labels, sync, broadcast --------------------------- */
+
+  function timingLabel(offset) {
+    if (Math.abs(offset) < 0.05) return 'In sync'
+    var secs = Math.abs(offset).toFixed(1)
+    var dir = offset > 0 ? 'later' : 'earlier'
+    var sign = offset > 0 ? '+' : '−'
+    return sign + secs + ' s · ' + dir
+  }
+
+  /** Reflects the shared settings into the sliders/labels/overlay (no broadcast). */
+  function syncSettingsControls() {
+    if (subtitleTimingRange) subtitleTimingRange.value = String(subtitleOffset)
+    if (subtitleTimingLabel) subtitleTimingLabel.textContent = timingLabel(subtitleOffset)
+    if (subtitleTimingReset) subtitleTimingReset.disabled = subtitleOffset === 0
+    if (subtitleWeightRange) subtitleWeightRange.value = String(subtitleWeight)
+    if (subtitleWeightLabel) subtitleWeightLabel.textContent = String(subtitleWeight)
+    if (subtitleSizeRange) subtitleSizeRange.value = String(subtitleSize)
+    if (subtitleSizeLabel) subtitleSizeLabel.textContent = String(subtitleSize)
+    applySubtitleStyle()
+  }
+
+  /** Inbound shared settings — seeds a newcomer on join + live updates. */
+  function applyRemoteSubtitleSettings(payload) {
+    if (!payload) return
+    if (isFinite(Number(payload.offset))) subtitleOffset = Number(payload.offset)
+    if (isFinite(Number(payload.weight))) subtitleWeight = Number(payload.weight)
+    if (isFinite(Number(payload.size))) subtitleSize = Number(payload.size)
+    lastCueIndex = -1
+    syncSettingsControls()
+  }
+
+  /** Broadcasts the current shared settings to the room (clamped server-side). */
+  function commitSubtitleSettings() {
+    socket.emit('set_subtitle_settings', {
+      offset: subtitleOffset,
+      weight: subtitleWeight,
+      size: subtitleSize
+    })
+  }
+
+  /* ---- Modal helpers ------------------------------------------------------ */
+
+  function openModalEl(el) {
+    if (!el) return
+    el.classList.add('is-open')
+    el.setAttribute('aria-hidden', 'false')
+  }
+  function closeModalEl(el) {
+    if (!el) return
+    el.classList.remove('is-open')
+    el.setAttribute('aria-hidden', 'true')
+  }
+
+  function openSubtitleModal() {
+    if (subtitleModalError) subtitleModalError.hidden = true
+    if (subtitleFile) subtitleFile.value = ''
+    if (subtitleQuery && !subtitleQuery.value) subtitleQuery.value = window.ROOM_NAME || ''
+    openModalEl(subtitleModal)
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    })
+  }
+
+  /* ---- Search OpenSubtitles ----------------------------------------------- */
+
+  function renderResults(results) {
+    if (!subtitleResults) return
+    subtitleResults.innerHTML = ''
+    if (!results || results.length === 0) {
+      subtitleResults.innerHTML =
+        '<p class="sub-results-empty">No subtitles found — try a different name or language.</p>'
+      return
+    }
+    var max = Math.min(results.length, 30)
+    for (var i = 0; i < max; i++) {
+      var r = results[i]
+      var row = document.createElement('div')
+      row.className = 'sub-result'
+      var meta =
+        (r.downloadsCount ? r.downloadsCount + ' ↓' : '') +
+        (r.rating ? ' · ★' + r.rating : '') +
+        (r.format ? ' · ' + String(r.format).toUpperCase() : '')
+      row.innerHTML =
+        '<span class="sub-result-lang">' + escapeHtml((r.langId || '').toUpperCase()) + '</span>' +
+        '<span class="sub-result-main">' +
+        '<span class="sub-result-title">' + escapeHtml(r.releaseName || r.fileName || 'Subtitle') + '</span>' +
+        '<span class="sub-result-meta">' + escapeHtml(meta) + '</span>' +
+        '</span>' +
+        '<button class="btn-primary sub-result-add" type="button">Add</button>'
+      ;(function (result, button) {
+        button.addEventListener('click', function () {
+          attachSubtitle(result, button)
+        })
+      })(r, row.querySelector('.sub-result-add'))
+      subtitleResults.appendChild(row)
+    }
+  }
+
+  function runSearch() {
+    if (!subtitleResults) return
+    var query = ((subtitleQuery && subtitleQuery.value) || '').trim()
+    if (!query) {
+      subtitleResults.innerHTML = '<p class="sub-results-empty">Type a movie or show name to search.</p>'
+      return
+    }
+    var params = new URLSearchParams()
+    params.set('query', query)
+    params.set('lang', (subtitleLang && subtitleLang.value) || 'eng')
+    var s = parseInt(subtitleSeason && subtitleSeason.value, 10)
+    var e = parseInt(subtitleEpisode && subtitleEpisode.value, 10)
+    if (isFinite(s) && s > 0) params.set('season', String(s))
+    if (isFinite(e) && e > 0) params.set('episode', String(e))
+
+    subtitleResults.innerHTML = '<p class="sub-results-empty">Searching…</p>'
+    if (subtitleSearchBtn) subtitleSearchBtn.disabled = true
+
+    fetch('/room/' + encodeURIComponent(slug) + '/subtitles/search?' + params.toString(), {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    })
+      .then(function (res) {
+        return res.json().then(function (b) {
+          return { ok: res.ok, body: b }
+        })
+      })
+      .then(function (r) {
+        if (subtitleSearchBtn) subtitleSearchBtn.disabled = false
+        if (!r.ok) {
+          subtitleResults.innerHTML =
+            '<p class="sub-results-empty">' +
+            escapeHtml((r.body && r.body.error) || 'Search failed — try again.') +
+            '</p>'
+          return
+        }
+        renderResults(r.body && r.body.results)
+      })
+      .catch(function () {
+        if (subtitleSearchBtn) subtitleSearchBtn.disabled = false
+        subtitleResults.innerHTML =
+          '<p class="sub-results-empty">Search failed — check your connection.</p>'
+      })
+  }
+
+  function attachSubtitle(result, button) {
+    if (!result || !result.downloadLink) return
+    if (button) {
+      button.disabled = true
+      button.textContent = 'Adding…'
+    }
+    fetch('/room/' + encodeURIComponent(slug) + '/subtitle/opensubtitles', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ downloadLink: result.downloadLink, format: result.format || 'srt' })
+    })
+      .then(function (res) {
+        return res.json().then(function (b) {
+          return { ok: res.ok, body: b }
+        })
+      })
+      .then(function (r) {
+        if (button) {
+          button.disabled = false
+          button.textContent = 'Add'
+        }
+        if (r.ok && r.body && r.body.filename) {
+          // Server broadcasts `subtitle_changed`; our handler loads it.
+          closeModalEl(subtitleModal)
+          if (window.showToast) showToast('Subtitle added', 'success')
+        } else if (window.showToast) {
+          showToast((r.body && r.body.error) || 'Could not add subtitle.', 'error')
+        }
+      })
+      .catch(function () {
+        if (button) {
+          button.disabled = false
+          button.textContent = 'Add'
+        }
+        if (window.showToast) showToast('Could not add subtitle — check your connection.', 'error')
+      })
+  }
+
+  /* ---- Upload a file ------------------------------------------------------ */
+
+  function uploadSubtitleFile() {
+    var file = subtitleFile && subtitleFile.files && subtitleFile.files[0]
+    if (!file) {
+      if (subtitleModalError) {
+        subtitleModalError.textContent = 'Choose an .srt or .vtt file first.'
+        subtitleModalError.hidden = false
+      }
+      return
+    }
+
+    var form = new FormData()
+    form.append('subtitle', file)
+
+    var xhr = new XMLHttpRequest()
+    xhr.open('POST', '/room/' + encodeURIComponent(slug) + '/subtitle')
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
+    xhr.setRequestHeader('Accept', 'application/json')
+    confirmSubtitle.disabled = true
+    confirmSubtitle.textContent = 'Uploading…'
+
+    xhr.addEventListener('load', function () {
+      confirmSubtitle.disabled = false
+      confirmSubtitle.textContent = 'Upload file'
+      var body = {}
+      try {
+        body = JSON.parse(xhr.responseText)
+      } catch (e) {}
+
+      if (xhr.status >= 200 && xhr.status < 300 && body.filename) {
+        // The server already broadcast `subtitle_changed` — our handler loads it.
+        closeModalEl(subtitleModal)
+        if (window.showToast) showToast('Subtitle added', 'success')
+      } else {
+        subtitleModalError.textContent = body.error || 'Upload failed (HTTP ' + xhr.status + ').'
+        subtitleModalError.hidden = false
+      }
+    })
+    xhr.addEventListener('error', function () {
+      confirmSubtitle.disabled = false
+      confirmSubtitle.textContent = 'Upload file'
+      subtitleModalError.textContent = 'The upload failed — check your connection.'
+      subtitleModalError.hidden = false
+    })
+    xhr.send(form)
+  }
+
+  /* ---- Wiring ------------------------------------------------------------- */
+
+  if (subtitleBtn) subtitleBtn.addEventListener('click', openSubtitleModal)
+  if (cancelSubtitle)
+    cancelSubtitle.addEventListener('click', function () {
+      closeModalEl(subtitleModal)
+    })
+  if (subtitleModal)
+    subtitleModal.addEventListener('click', function (e) {
+      if (e.target === subtitleModal) closeModalEl(subtitleModal)
+    })
+  if (subtitleSearchBtn) subtitleSearchBtn.addEventListener('click', runSearch)
+  if (subtitleQuery)
+    subtitleQuery.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        runSearch()
+      }
+    })
+  if (confirmSubtitle) confirmSubtitle.addEventListener('click', uploadSubtitleFile)
+
+  if (subtitleSettingsBtn)
+    subtitleSettingsBtn.addEventListener('click', function () {
+      syncSettingsControls()
+      openModalEl(subtitleSettingsModal)
+    })
+  if (closeSubtitleSettings)
+    closeSubtitleSettings.addEventListener('click', function () {
+      closeModalEl(subtitleSettingsModal)
+    })
+  if (subtitleSettingsModal)
+    subtitleSettingsModal.addEventListener('click', function (e) {
+      if (e.target === subtitleSettingsModal) closeModalEl(subtitleSettingsModal)
+    })
+
+  // Timing/weight/size: preview live while dragging, broadcast on release.
+  if (subtitleTimingRange) {
+    subtitleTimingRange.addEventListener('input', function () {
+      subtitleOffset = Math.round(parseFloat(subtitleTimingRange.value) * 10) / 10
+      if (subtitleTimingLabel) subtitleTimingLabel.textContent = timingLabel(subtitleOffset)
+      if (subtitleTimingReset) subtitleTimingReset.disabled = subtitleOffset === 0
+      lastCueIndex = -1
+    })
+    subtitleTimingRange.addEventListener('change', commitSubtitleSettings)
+  }
+  if (subtitleTimingReset)
+    subtitleTimingReset.addEventListener('click', function () {
+      subtitleOffset = 0
+      syncSettingsControls()
+      commitSubtitleSettings()
+    })
+  if (subtitleWeightRange) {
+    subtitleWeightRange.addEventListener('input', function () {
+      subtitleWeight = parseInt(subtitleWeightRange.value, 10) || 500
+      if (subtitleWeightLabel) subtitleWeightLabel.textContent = String(subtitleWeight)
+      applySubtitleStyle()
+    })
+    subtitleWeightRange.addEventListener('change', commitSubtitleSettings)
+  }
+  if (subtitleSizeRange) {
+    subtitleSizeRange.addEventListener('input', function () {
+      subtitleSize = parseInt(subtitleSizeRange.value, 10) || 28
+      if (subtitleSizeLabel) subtitleSizeLabel.textContent = String(subtitleSize)
+      applySubtitleStyle()
+    })
+    subtitleSizeRange.addEventListener('change', commitSubtitleSettings)
+  }
+
+  /** Broadcast: a new subtitle was uploaded/attached. Each client refetches it. */
+  socket.on('subtitle_changed', function (payload) {
+    var filename = payload && typeof payload.filename === 'string' ? payload.filename : null
+    setSubtitleSource(filename)
+  })
+
+  /** Shared display settings — seeded on join, updated live by any viewer. */
+  socket.on('subtitle_settings_changed', applyRemoteSubtitleSettings)
+
+  populateLanguages()
+  applySubtitleStyle()
+  if (window.ROOM_SUBTITLE) setSubtitleSource(window.ROOM_SUBTITLE)
 
   /* ------------------------------------------------------------------------
      Delete-room modal — a confirmation gate in front of the delete form.
