@@ -40,3 +40,4 @@ storage/torrents/**/*.avi
 storage/torrents/**/*.webm
 storage/torrents/**/*.m4v
 storage/torrents/**/*.mov
+/.claude
