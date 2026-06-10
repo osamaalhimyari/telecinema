@@ -24,6 +24,7 @@ yarn-error.log
 .fleet
 .idea
 .vscode
+.claude
 
 # Platform specific
 .DS_Store
@@ -40,4 +41,3 @@ storage/torrents/**/*.avi
 storage/torrents/**/*.webm
 storage/torrents/**/*.m4v
 storage/torrents/**/*.mov
-/.claude
