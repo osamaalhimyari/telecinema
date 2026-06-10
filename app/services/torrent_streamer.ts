@@ -345,6 +345,9 @@ async function runTorrentRoom(
     job.totalBytes = file.length
 
     const slug = await uniqueSlug(name)
+    // The slug lookup awaits the DB, so a cancel can land between the checkpoint
+    // above and here — re-check so a canceled job never creates a room.
+    if (job.canceled) throw new Error('operation_canceled')
     await Room.create({
       name,
       slug,
@@ -495,6 +498,9 @@ async function runMagnetDownload(
 
     const ext = extname(file.name).replace(/^\./, '').toLowerCase() || 'mp4'
     const slug = await uniqueSlug(name)
+    // Re-check before the rename so a late cancel leaves the partial at tmpPath
+    // for the catch's unlink to clean up — never a stray renamed file or room.
+    if (job.canceled) throw new Error('operation_canceled')
     const videoFilename = `${slug}.${ext}`
     await rename(tmpPath, app.makePath('storage/videos', videoFilename))
 

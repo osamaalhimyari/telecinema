@@ -17,12 +17,15 @@
 
 import { createWriteStream } from 'node:fs'
 import { mkdir, rename, unlink } from 'node:fs/promises'
-import { Readable, Transform } from 'node:stream'
+import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { extname } from 'node:path'
+import http from 'node:http'
+import https from 'node:https'
+import type { IncomingMessage } from 'node:http'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import Room from '#models/room'
@@ -261,6 +264,73 @@ async function assertPublicHost(url: URL): Promise<void> {
   }
 }
 
+/** Most hops a download link may bounce through before we give up. */
+const MAX_REDIRECTS = 5
+
+/**
+ * Opens a download stream, following redirects **ourselves** and re-running the
+ * private-host check on every hop. This is the crux of the SSRF defense: the
+ * global `fetch`'s `redirect: 'follow'` would chase a 3xx to an internal address
+ * (cloud metadata, localhost, a LAN service) *after* the initial host check
+ * passed, so the only safe option is manual following with a check per hop.
+ * (`fetch` with `redirect: 'manual'` returns an opaque response whose `Location`
+ * can't be read, so it can't be used here — hence `node:http(s)`.)
+ *
+ * Returns the response stream plus the headers the caller needs. Honors [signal]
+ * so a user cancel aborts the in-flight request.
+ */
+async function openVideoStream(
+  initialUrl: URL,
+  signal: AbortSignal
+): Promise<{
+  stream: IncomingMessage
+  contentType: string | null
+  contentLength: number | null
+  finalUrl: URL
+}> {
+  let url = initialUrl
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    // Re-validate the host on every hop — never connect anywhere private.
+    await assertPublicHost(url)
+
+    const res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const lib = url.protocol === 'https:' ? https : http
+      const req = lib.get(
+        url,
+        { headers: { 'user-agent': 'WatchParty/1.0 (+room video downloader)' }, signal },
+        resolve
+      )
+      req.on('error', reject)
+    })
+
+    const status = res.statusCode ?? 0
+
+    // A redirect: drain this response, validate + re-loop on the new location.
+    if (status >= 300 && status < 400 && res.headers.location) {
+      res.resume() // discard the body so the socket frees up
+      const next = parseHttpUrl(new URL(res.headers.location, url).toString())
+      url = next
+      continue
+    }
+
+    if (status < 200 || status >= 300) {
+      res.resume()
+      throw new Error(`The link could not be reached (HTTP ${status}).`)
+    }
+
+    const len = Number.parseInt(res.headers['content-length'] ?? '', 10)
+    return {
+      stream: res,
+      contentType: res.headers['content-type'] ?? null,
+      contentLength: Number.isFinite(len) ? len : null,
+      finalUrl: url,
+    }
+  }
+
+  throw new Error('That link redirects too many times.')
+}
+
 /**
  * Picks the saved file's extension: the URL's own extension when it is a
  * known video container, otherwise the response `Content-Type`. Returns an
@@ -346,28 +416,25 @@ async function runDownload(
 
   try {
     await mkdir(app.makePath('storage/videos'), { recursive: true })
-    await assertPublicHost(url)
 
-    const response = await fetch(url, {
-      redirect: 'follow',
-      headers: { 'user-agent': 'WatchParty/1.0 (+room video downloader)' },
-      signal: job.controller.signal,
-    })
-    if (!response.ok || !response.body) {
-      throw new Error(`The link could not be reached (HTTP ${response.status}).`)
-    }
+    // Follows redirects with a private-host check on every hop (SSRF-safe).
+    const { stream, contentType, contentLength, finalUrl } = await openVideoStream(
+      url,
+      job.controller.signal
+    )
 
-    const ext = resolveExtension(url, response.headers.get('content-type'))
+    const ext = resolveExtension(finalUrl, contentType)
     if (!ext) {
+      stream.resume() // drain so the socket is released before we bail
       throw new Error('That link does not point to a supported video file.')
     }
 
-    const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10)
-    if (Number.isFinite(declared)) {
-      if (declared > MAX_VIDEO_BYTES) {
+    if (contentLength != null) {
+      if (contentLength > MAX_VIDEO_BYTES) {
+        stream.resume()
         throw new Error('That video is larger than the 15 GB limit.')
       }
-      job.totalBytes = declared
+      job.totalBytes = contentLength
     }
 
     /**
@@ -390,11 +457,7 @@ async function runDownload(
       },
     })
 
-    await pipeline(
-      Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-      counter,
-      createWriteStream(tmpPath)
-    )
+    await pipeline(stream, counter, createWriteStream(tmpPath))
 
     /** The bytes are on disk — only now does the room come into existence. */
     const room = await createRoom(name, password, reactions, category, imdbId, tmpPath, ext)
@@ -408,8 +471,8 @@ async function runDownload(
   } catch (error) {
     await unlink(tmpPath).catch(() => {})
     job.status = 'error'
-    // A user cancel aborts the fetch (an AbortError); keep the stable cancel key
-    // the client translates rather than the raw abort message.
+    // A user cancel aborts the request (an AbortError); keep the stable cancel
+    // key the client translates rather than the raw abort message.
     if (job.controller.signal.aborted) {
       job.error = 'operation_canceled'
     } else {
