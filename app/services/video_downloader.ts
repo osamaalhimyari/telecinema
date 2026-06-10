@@ -83,6 +83,35 @@ export interface DownloadJob {
   roomHasPassword: boolean
   /** `Date.now()` of the last change — used to time out the job's eviction. */
   updatedAt: number
+  /**
+   * The device that started this job (from the `x-device-id` header), so the
+   * mobile client can list *its* operations after a reconnect — when the socket
+   * token it had is long gone but the persisted device id is the same.
+   */
+  deviceId: string | null
+  /** Room name being created — shown in the client's operations panel. */
+  name: string
+  /** `Date.now()` the job started, so the panel can order newest-first. */
+  createdAt: number
+  /** Aborts the in-flight fetch when the user cancels the operation. */
+  controller: AbortController
+}
+
+/** The transfer kind reported to the client's operations panel. */
+export const DOWNLOAD_KIND = 'download'
+
+/** A job's public shape for the operations list, with its id and kind. */
+export interface OperationView {
+  id: string
+  kind: string
+  name: string
+  status: DownloadStatus
+  percent: number | null
+  bytesDownloaded: number
+  totalBytes: number | null
+  error: string | null
+  slug: string | null
+  createdAt: number
 }
 
 /**
@@ -95,6 +124,51 @@ const jobs = new Map<string, DownloadJob>()
  */
 export function getJob(jobId: string): DownloadJob | undefined {
   return jobs.get(jobId)
+}
+
+/** Maps a stored job to the public operations-list view. */
+function toOperationView(jobId: string, job: DownloadJob): OperationView {
+  const slug =
+    job.status === 'done' && job.redirectTo ? job.redirectTo.replace('/room/', '') : null
+  return {
+    id: jobId,
+    kind: DOWNLOAD_KIND,
+    name: job.name,
+    status: job.status,
+    percent: job.percent,
+    bytesDownloaded: job.bytesDownloaded,
+    totalBytes: job.totalBytes,
+    error: job.error,
+    slug,
+    createdAt: job.createdAt,
+  }
+}
+
+/**
+ * Every URL-download job for [deviceId] (newest first). A null/empty device id
+ * matches nothing — the client must identify itself to see its operations.
+ */
+export function listDownloadJobs(deviceId: string | null): OperationView[] {
+  if (!deviceId) return []
+  const out: OperationView[] = []
+  for (const [id, job] of jobs) {
+    if (job.deviceId === deviceId) out.push(toOperationView(id, job))
+  }
+  return out
+}
+
+/**
+ * Cancels a still-running URL download owned by [deviceId]: aborts the fetch
+ * (its catch then deletes the partial file and marks the job). Returns true
+ * when a matching, cancelable job was found.
+ */
+export function cancelDownloadJob(jobId: string, deviceId: string | null): boolean {
+  const job = jobs.get(jobId)
+  if (!job || (deviceId && job.deviceId !== deviceId)) return false
+  if (job.status !== 'downloading') return false
+  job.error = 'operation_canceled'
+  job.controller.abort()
+  return true
 }
 
 /**
@@ -277,6 +351,7 @@ async function runDownload(
     const response = await fetch(url, {
       redirect: 'follow',
       headers: { 'user-agent': 'WatchParty/1.0 (+room video downloader)' },
+      signal: job.controller.signal,
     })
     if (!response.ok || !response.body) {
       throw new Error(`The link could not be reached (HTTP ${response.status}).`)
@@ -333,7 +408,13 @@ async function runDownload(
   } catch (error) {
     await unlink(tmpPath).catch(() => {})
     job.status = 'error'
-    job.error = error instanceof Error ? error.message : 'The video could not be downloaded.'
+    // A user cancel aborts the fetch (an AbortError); keep the stable cancel key
+    // the client translates rather than the raw abort message.
+    if (job.controller.signal.aborted) {
+      job.error = 'operation_canceled'
+    } else {
+      job.error = error instanceof Error ? error.message : 'The video could not be downloaded.'
+    }
     job.updatedAt = Date.now()
   }
 
@@ -353,6 +434,7 @@ export function startUrlDownload(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  deviceId?: string | null
 }): string {
   const url = parseHttpUrl(opts.url)
   const jobId = randomUUID()
@@ -367,6 +449,10 @@ export function startUrlDownload(opts: {
     roomId: null,
     roomHasPassword: false,
     updatedAt: Date.now(),
+    deviceId: opts.deviceId ?? null,
+    name: opts.name,
+    createdAt: Date.now(),
+    controller: new AbortController(),
   })
 
   /** Detached on purpose: progress is observed via `getJob`, never awaited. */

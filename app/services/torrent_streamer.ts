@@ -65,6 +65,36 @@ export interface TorrentJob {
   error: string | null
   slug: string | null
   updatedAt: number
+  /** Device that started the job (from `x-device-id`), so the client can list
+   * its own operations across a socket reconnect. */
+  deviceId: string | null
+  /** Room name being created — shown in the client's operations panel. */
+  name: string
+  /** `'torrent'` (stream) or `'magnet-download'` (full fetch to disk). */
+  kind: string
+  /** `Date.now()` the job started — for newest-first ordering. */
+  createdAt: number
+  /** Set true by `cancelTorrentJob`; the run aborts at its next checkpoint. */
+  canceled: boolean
+}
+
+/** Transfer kinds reported to the client's operations panel. */
+export const TORRENT_KIND = 'torrent'
+export const MAGNET_DOWNLOAD_KIND = 'magnet-download'
+
+/** A torrent job's public shape for the operations list (mirrors the URL
+ * downloader's `OperationView`). */
+export interface TorrentOperationView {
+  id: string
+  kind: string
+  name: string
+  status: 'downloading' | 'done' | 'error'
+  percent: number | null
+  bytesDownloaded: number
+  totalBytes: number | null
+  error: string | null
+  slug: string | null
+  createdAt: number
 }
 
 const torrentJobs = new Map<string, TorrentJob>()
@@ -72,6 +102,42 @@ const torrentJobs = new Map<string, TorrentJob>()
 /** Current state of a torrent room-creation job, or undefined once evicted. */
 export function getTorrentJob(jobId: string): TorrentJob | undefined {
   return torrentJobs.get(jobId)
+}
+
+/** Every torrent/magnet job for [deviceId] (caller orders them). */
+export function listTorrentJobs(deviceId: string | null): TorrentOperationView[] {
+  if (!deviceId) return []
+  const out: TorrentOperationView[] = []
+  for (const [id, job] of torrentJobs) {
+    if (job.deviceId !== deviceId) continue
+    out.push({
+      id,
+      kind: job.kind,
+      name: job.name,
+      status: job.status,
+      percent: job.percent,
+      bytesDownloaded: job.bytesDownloaded,
+      totalBytes: job.totalBytes,
+      error: job.error,
+      slug: job.slug,
+      createdAt: job.createdAt,
+    })
+  }
+  return out
+}
+
+/**
+ * Flags a running torrent/magnet job (owned by [deviceId]) for cancellation.
+ * The detached run checks the flag at its next checkpoint — after metadata and
+ * on every streamed chunk — then aborts and cleans up. Returns true when a
+ * matching, still-running job was found.
+ */
+export function cancelTorrentJob(jobId: string, deviceId: string | null): boolean {
+  const job = torrentJobs.get(jobId)
+  if (!job || (deviceId && job.deviceId !== deviceId)) return false
+  if (job.status !== 'downloading') return false
+  job.canceled = true
+  return true
 }
 
 /**
@@ -272,6 +338,7 @@ async function runTorrentRoom(
     await mkdir(app.makePath('storage/torrents'), { recursive: true })
 
     const torrent = await ensureTorrent(magnet)
+    if (job.canceled) throw new Error('operation_canceled')
     const file = pickVideoFile(torrent)
     if (!file) throw new Error(ERR_NO_VIDEO)
 
@@ -315,7 +382,7 @@ async function runTorrentRoom(
     job.updatedAt = Date.now()
   } catch (err) {
     job.status = 'error'
-    job.error = errorKey(err)
+    job.error = job.canceled ? 'operation_canceled' : errorKey(err)
     job.updatedAt = Date.now()
   }
 
@@ -334,6 +401,7 @@ export function startTorrentRoom(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  deviceId?: string | null
 }): string {
   const magnet = normalizeMagnet(opts.magnet)
   const jobId = randomUUID()
@@ -346,6 +414,11 @@ export function startTorrentRoom(opts: {
     error: null,
     slug: null,
     updatedAt: Date.now(),
+    deviceId: opts.deviceId ?? null,
+    name: opts.name,
+    kind: TORRENT_KIND,
+    createdAt: Date.now(),
+    canceled: false,
   })
 
   /** Detached on purpose: progress is observed via `getTorrentJob`. */
@@ -392,15 +465,21 @@ async function runMagnetDownload(
     await mkdir(app.makePath('storage/videos'), { recursive: true })
 
     const torrent = await ensureTorrent(magnet)
+    if (job.canceled) throw new Error('operation_canceled')
     const file = pickVideoFile(torrent)
     if (!file) throw new Error(ERR_NO_VIDEO)
     if (file.length > MAX_VIDEO_BYTES) throw new Error(ERR_FAILED)
 
     job.totalBytes = file.length
 
-    /** Tallies bytes for the progress bar as pieces stream in from the swarm. */
+    /** Tallies bytes for the progress bar as pieces stream in from the swarm,
+     * and aborts the pipeline the moment the user cancels the operation. */
     const counter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
+        if (job.canceled) {
+          callback(new Error('operation_canceled'))
+          return
+        }
         job.bytesDownloaded += chunk.length
         job.percent = job.totalBytes
           ? Math.min(99, Math.floor((job.bytesDownloaded / job.totalBytes) * 100))
@@ -451,7 +530,7 @@ async function runMagnetDownload(
   } catch (err) {
     await unlink(tmpPath).catch(() => {})
     job.status = 'error'
-    job.error = errorKey(err)
+    job.error = job.canceled ? 'operation_canceled' : errorKey(err)
     job.updatedAt = Date.now()
   }
 
@@ -470,6 +549,7 @@ export function startMagnetDownload(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  deviceId?: string | null
 }): string {
   const magnet = normalizeMagnet(opts.magnet)
   const jobId = randomUUID()
@@ -482,6 +562,11 @@ export function startMagnetDownload(opts: {
     error: null,
     slug: null,
     updatedAt: Date.now(),
+    deviceId: opts.deviceId ?? null,
+    name: opts.name,
+    kind: MAGNET_DOWNLOAD_KIND,
+    createdAt: Date.now(),
+    canceled: false,
   })
 
   /** Detached on purpose: progress is observed via `getTorrentJob`. */

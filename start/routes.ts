@@ -116,6 +116,13 @@ router
     router
       .get('/rooms/download/:jobId', [RoomsApiController, 'downloadProgress'])
       .as('api.rooms.downloadProgress')
+
+    // Device-scoped server transfers — list this device's in-flight operations
+    // and cancel one. Used by the app's operations panel.
+    router.get('/operations', [RoomsApiController, 'operations']).as('api.operations.index')
+    router
+      .post('/rooms/download/:jobId/cancel', [RoomsApiController, 'cancelOperation'])
+      .as('api.rooms.cancelDownload')
     router.get('/rooms/:slug', [RoomsApiController, 'show']).as('api.rooms.show')
     router.post('/rooms/:slug/unlock', [RoomsApiController, 'unlock']).as('api.rooms.unlock')
     router.delete('/rooms/:slug', [RoomsApiController, 'destroy']).as('api.rooms.destroy')

@@ -3,12 +3,19 @@ import { basename } from 'node:path'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
-import { startUrlDownload, getJob } from '#services/video_downloader'
+import {
+  startUrlDownload,
+  getJob,
+  listDownloadJobs,
+  cancelDownloadJob,
+} from '#services/video_downloader'
 import {
   startTorrentRoom,
   startMagnetDownload,
   getTorrentJob,
   removeRoomTorrent,
+  listTorrentJobs,
+  cancelTorrentJob,
 } from '#services/torrent_streamer'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
@@ -137,6 +144,11 @@ export default class RoomsApiController {
     const { name, password, roomType, videoUrl, magnet, reactions, category, imdbId } =
       await request.validateUsing(createRoomValidator)
 
+    // Stable per-install id sent by the mobile client, so a long-running
+    // download/torrent it kicks off can be listed and cancelled later — even
+    // after a socket reconnect changes its realtime token.
+    const deviceId = request.header('x-device-id') ?? null
+
     const fail = (message: string, status = 422) =>
       response.status(status).json({ success: false, message })
 
@@ -153,6 +165,7 @@ export default class RoomsApiController {
             reactions: reactions ?? null,
             category: category ?? null,
             imdbId: imdbId ?? null,
+            deviceId,
           })
           return response.json({ success: true, data: { jobId } })
         } catch (error) {
@@ -168,6 +181,7 @@ export default class RoomsApiController {
           reactions: reactions ?? null,
           category: category ?? null,
           imdbId: imdbId ?? null,
+          deviceId,
         })
         return response.json({ success: true, data: { jobId } })
       } catch (error) {
@@ -186,6 +200,7 @@ export default class RoomsApiController {
           reactions: reactions ?? null,
           category: category ?? null,
           imdbId: imdbId ?? null,
+          deviceId,
         })
         return response.json({ success: true, data: { jobId } })
       } catch (error) {
@@ -269,6 +284,40 @@ export default class RoomsApiController {
         slug,
       },
     })
+  }
+
+  /**
+   * GET /api/operations — every in-flight (and recently finished) server
+   * transfer this device started: URL downloads, magnet downloads, and torrent
+   * room creations. Identified by the `x-device-id` header (or `?deviceId=`),
+   * so the mobile client can show + cancel its operations even after a socket
+   * reconnect. Newest first.
+   */
+  async operations({ request, response }: HttpContext) {
+    const deviceId = request.header('x-device-id') ?? (String(request.input('deviceId') ?? '') || null)
+
+    const all = [...listDownloadJobs(deviceId), ...listTorrentJobs(deviceId)].sort(
+      (a, b) => b.createdAt - a.createdAt
+    )
+    return response.json({ success: true, data: { operations: all } })
+  }
+
+  /**
+   * POST /api/rooms/download/:jobId/cancel — cancel a running transfer the
+   * device owns. Dispatches to whichever service holds the job; a job already
+   * finished or owned by another device returns 404.
+   */
+  async cancelOperation({ params, request, response }: HttpContext) {
+    const jobId = String(params.jobId)
+    const deviceId = request.header('x-device-id') ?? (String(request.input('deviceId') ?? '') || null)
+
+    const canceled = cancelDownloadJob(jobId, deviceId) || cancelTorrentJob(jobId, deviceId)
+    if (!canceled) {
+      return response
+        .status(404)
+        .json({ success: false, message: 'That operation is no longer available.' })
+    }
+    return response.json({ success: true })
   }
 
   /**
