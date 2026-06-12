@@ -51,6 +51,17 @@ export default class VideosController {
      * traversal (e.g. `../../config/database.ts`) via the filename param.
      */
     const filename = basename(String(params.filename))
+
+    /**
+     * In-progress download artifacts are written as dotfiles (e.g.
+     * `.yt-<id>.mp4`, `.download-<id>.part`); a finished room video never is.
+     * Refuse any dotfile outright so a half-written file can never be streamed,
+     * even if its (unguessable) temp name were somehow known.
+     */
+    if (filename.startsWith('.')) {
+      return response.status(404).send('Video file not found')
+    }
+
     const filePath = app.makePath('storage/videos', filename)
 
     /**

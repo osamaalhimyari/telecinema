@@ -17,6 +17,13 @@ import {
   listTorrentJobs,
   cancelTorrentJob,
 } from '#services/torrent_streamer'
+import {
+  startYoutubeDownload,
+  getYoutubeJob,
+  listYoutubeJobs,
+  cancelYoutubeJob,
+  isYoutubeUrl,
+} from '#services/youtube_downloader'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -173,6 +180,24 @@ export default class RoomsApiController {
         }
       }
       if (!videoUrl) return fail('Please paste a link or a magnet.')
+      // A YouTube link is not a plain file the URL downloader can stream, so it
+      // is handed to yt-dlp (which fetches it into a normal `download` room).
+      if (isYoutubeUrl(videoUrl)) {
+        try {
+          const jobId = startYoutubeDownload({
+            name,
+            password: password ?? null,
+            url: videoUrl,
+            reactions: reactions ?? null,
+            category: category ?? null,
+            imdbId: imdbId ?? null,
+            deviceId,
+          })
+          return response.json({ success: true, data: { jobId } })
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'That YouTube link could not be used.')
+        }
+      }
       try {
         const jobId = startUrlDownload({
           name,
@@ -265,6 +290,23 @@ export default class RoomsApiController {
       })
     }
 
+    /** A YouTube room shares this poll too: it reaches `done` (with its slug)
+     * once yt-dlp finishes and the room row exists. */
+    const ytJob = getYoutubeJob(jobId)
+    if (ytJob) {
+      return response.json({
+        success: true,
+        data: {
+          status: ytJob.status,
+          percent: ytJob.percent,
+          bytesDownloaded: ytJob.bytesDownloaded,
+          totalBytes: ytJob.totalBytes,
+          error: ytJob.error,
+          slug: ytJob.slug,
+        },
+      })
+    }
+
     const job = getJob(jobId)
     if (!job) {
       return response
@@ -296,9 +338,11 @@ export default class RoomsApiController {
   async operations({ request, response }: HttpContext) {
     const deviceId = request.header('x-device-id') ?? (String(request.input('deviceId') ?? '') || null)
 
-    const all = [...listDownloadJobs(deviceId), ...listTorrentJobs(deviceId)].sort(
-      (a, b) => b.createdAt - a.createdAt
-    )
+    const all = [
+      ...listDownloadJobs(deviceId),
+      ...listTorrentJobs(deviceId),
+      ...listYoutubeJobs(deviceId),
+    ].sort((a, b) => b.createdAt - a.createdAt)
     return response.json({ success: true, data: { operations: all } })
   }
 
@@ -311,7 +355,10 @@ export default class RoomsApiController {
     const jobId = String(params.jobId)
     const deviceId = request.header('x-device-id') ?? (String(request.input('deviceId') ?? '') || null)
 
-    const canceled = cancelDownloadJob(jobId, deviceId) || cancelTorrentJob(jobId, deviceId)
+    const canceled =
+      cancelDownloadJob(jobId, deviceId) ||
+      cancelTorrentJob(jobId, deviceId) ||
+      cancelYoutubeJob(jobId, deviceId)
     if (!canceled) {
       return response
         .status(404)
