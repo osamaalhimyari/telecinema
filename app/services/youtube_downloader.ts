@@ -38,14 +38,20 @@ import Room from '#models/room'
 /** Hard ceiling on a downloaded file — matches the URL/magnet downloaders. */
 const MAX_VIDEO_SIZE_ARG = '15G'
 
+/** Largest height we ever request when the client did not pick one. */
+const DEFAULT_MAX_HEIGHT = 1080
+
 /**
- * yt-dlp format selector: prefer an mp4 video + m4a audio under 1080p (a fast,
- * lossless mux to mp4 — the most app-compatible result), then any codec under
- * 1080p, then the best single progressive stream. `<=?1080` is non-strict so a
- * stream of unknown height is not rejected outright.
+ * Builds the yt-dlp format selector for a requested max height: prefer an mp4
+ * video + m4a audio under that height (a fast, lossless mux to mp4 — the most
+ * app-compatible result), then any codec under it, then the best single
+ * progressive stream. `<=?N` is non-strict so a stream of unknown height is not
+ * rejected outright; the client picks the height, yt-dlp picks the best ≤ it.
  */
-const FORMAT =
-  'bv*[ext=mp4][height<=?1080]+ba[ext=m4a]/bv*[height<=?1080]+ba/b[height<=?1080]/b'
+function buildFormat(maxHeight: number | null): string {
+  const h = maxHeight && maxHeight > 0 ? Math.floor(maxHeight) : DEFAULT_MAX_HEIGHT
+  return `bv*[ext=mp4][height<=?${h}]+ba[ext=m4a]/bv*[height<=?${h}]+ba/b[height<=?${h}]/b`
+}
 
 /** Finished jobs linger this long so the client's final poll can read them. */
 const JOB_TTL_MS = 5 * 60 * 1000
@@ -266,7 +272,12 @@ function parseProgress(job: YoutubeJob, chunk: string): void {
  * of stderr), a missing binary, or a user cancel. Stores the child on the job
  * so a cancel can kill it.
  */
-function runYtDlp(job: YoutubeJob, url: string, outTemplate: string): Promise<void> {
+function runYtDlp(
+  job: YoutubeJob,
+  url: string,
+  outTemplate: string,
+  maxHeight: number | null
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const ffmpegBin = resolveFfmpegBin()
     const args = [
@@ -274,7 +285,7 @@ function runYtDlp(job: YoutubeJob, url: string, outTemplate: string): Promise<vo
       '--no-warnings',
       '--no-color',
       '-f',
-      FORMAT,
+      buildFormat(maxHeight),
       '--merge-output-format',
       'mp4',
       '--max-filesize',
@@ -380,7 +391,8 @@ async function runYoutubeDownload(
   password: string | null,
   reactions: string | null,
   category: string | null,
-  imdbId: string | null
+  imdbId: string | null,
+  maxHeight: number | null
 ): Promise<void> {
   const job = youtubeJobs.get(jobId)
   if (!job) return
@@ -395,7 +407,7 @@ async function runYoutubeDownload(
   try {
     await mkdir(app.makePath('storage/videos'), { recursive: true })
 
-    await runYtDlp(job, url, outTemplate)
+    await runYtDlp(job, url, outTemplate, maxHeight)
     if (job.canceled) throw new Error('operation_canceled')
 
     const produced = await findProducedFile(jobId)
@@ -459,6 +471,8 @@ export function startYoutubeDownload(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  /** Max video height to fetch (e.g. 1080); null = best up to the default. */
+  maxHeight?: number | null
   deviceId?: string | null
 }): string {
   if (!isYoutubeUrl(opts.url)) {
@@ -489,7 +503,8 @@ export function startYoutubeDownload(opts: {
     opts.password,
     opts.reactions ?? null,
     opts.category ?? null,
-    opts.imdbId ?? null
+    opts.imdbId ?? null,
+    opts.maxHeight ?? null
   )
 
   return jobId

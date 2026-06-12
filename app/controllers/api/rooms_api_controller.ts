@@ -148,7 +148,7 @@ export default class RoomsApiController {
    *   - `upload`   → multipart video file; returns the created room.
    */
   async store({ request, response }: HttpContext) {
-    const { name, password, roomType, videoUrl, magnet, reactions, category, imdbId } =
+    const { name, password, roomType, videoUrl, magnet, reactions, category, imdbId, maxHeight } =
       await request.validateUsing(createRoomValidator)
 
     // Stable per-install id sent by the mobile client, so a long-running
@@ -191,6 +191,7 @@ export default class RoomsApiController {
             reactions: reactions ?? null,
             category: category ?? null,
             imdbId: imdbId ?? null,
+            maxHeight: maxHeight ?? null,
             deviceId,
           })
           return response.json({ success: true, data: { jobId } })

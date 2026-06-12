@@ -25,4 +25,7 @@ export const createRoomValidator = vine.create({
   reactions: vine.string().nullable().optional(),
   category: vine.string().trim().maxLength(40).nullable().optional(),
   imdbId: vine.string().trim().maxLength(20).nullable().optional(),
+  // Max video height for a server-side YouTube download (e.g. 1080). Ignored by
+  // the other source types; the downloader picks the best format <= this height.
+  maxHeight: vine.number().min(144).max(4320).nullable().optional(),
 })
