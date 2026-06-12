@@ -27,7 +27,9 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { mkdir, rename, readdir, unlink } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
@@ -58,9 +60,52 @@ const OPERATION_KIND = 'download'
 /** Hostnames a pasted link must end with to be treated as YouTube. */
 const YOUTUBE_HOSTS = ['youtube.com', 'youtu.be', 'youtube-nocookie.com']
 
-/** Resolved binaries — overridable per host without touching the env schema. */
-const YT_DLP_BIN = process.env.YT_DLP_PATH || 'yt-dlp'
-const FFMPEG_BIN = process.env.FFMPEG_PATH || ''
+/**
+ * Resolves the two binaries lazily and defensively, so the room routes can
+ * never be broken by a missing optional package (the same reasoning that makes
+ * torrent_streamer load webtorrent through a guarded dynamic import).
+ *
+ * Resolution order, for each binary:
+ *   1. An explicit env override (`YT_DLP_PATH` / `FFMPEG_PATH`) — per-host escape hatch.
+ *   2. The binary bundled by the npm package (`youtube-dl-exec` / `ffmpeg-static`),
+ *      so a plain `npm ci` makes the feature work with no manual install.
+ *   3. The system `PATH` (`yt-dlp`), as a last resort.
+ *
+ * Resolved once and cached; a `require` that throws (package not installed) just
+ * falls through to the next option.
+ */
+const nodeRequire = createRequire(import.meta.url)
+
+let ytDlpBinCache: string | undefined
+function resolveYtDlpBin(): string {
+  if (ytDlpBinCache) return ytDlpBinCache
+  if (process.env.YT_DLP_PATH) return (ytDlpBinCache = process.env.YT_DLP_PATH)
+  try {
+    const pkgDir = dirname(nodeRequire.resolve('youtube-dl-exec/package.json'))
+    const names = process.platform === 'win32' ? ['yt-dlp.exe', 'yt-dlp'] : ['yt-dlp']
+    for (const name of names) {
+      const candidate = join(pkgDir, 'bin', name)
+      if (existsSync(candidate)) return (ytDlpBinCache = candidate)
+    }
+  } catch {
+    /* youtube-dl-exec not installed — fall back to PATH */
+  }
+  return (ytDlpBinCache = 'yt-dlp')
+}
+
+let ffmpegBinCache: string | null | undefined
+function resolveFfmpegBin(): string | null {
+  if (ffmpegBinCache !== undefined) return ffmpegBinCache
+  if (process.env.FFMPEG_PATH) return (ffmpegBinCache = process.env.FFMPEG_PATH)
+  try {
+    // ffmpeg-static's module export is the absolute path to its bundled binary.
+    const p = nodeRequire('ffmpeg-static') as string | null
+    if (p && existsSync(p)) return (ffmpegBinCache = p)
+  } catch {
+    /* ffmpeg-static not installed — let yt-dlp find ffmpeg on PATH */
+  }
+  return (ffmpegBinCache = null)
+}
 
 /**
  * Observable state of one YouTube → room job. Shaped like the torrent job so
@@ -223,6 +268,7 @@ function parseProgress(job: YoutubeJob, chunk: string): void {
  */
 function runYtDlp(job: YoutubeJob, url: string, outTemplate: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    const ffmpegBin = resolveFfmpegBin()
     const args = [
       '--no-playlist',
       '--no-warnings',
@@ -236,14 +282,14 @@ function runYtDlp(job: YoutubeJob, url: string, outTemplate: string): Promise<vo
       '--newline',
       '--progress-template',
       'download:YTPROG %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s',
-      ...(FFMPEG_BIN ? ['--ffmpeg-location', FFMPEG_BIN] : []),
+      ...(ffmpegBin ? ['--ffmpeg-location', ffmpegBin] : []),
       '-o',
       outTemplate,
       '--',
       url,
     ]
 
-    const child = spawn(YT_DLP_BIN, args, { windowsHide: true })
+    const child = spawn(resolveYtDlpBin(), args, { windowsHide: true })
     job.child = child
 
     let stderrTail = ''
