@@ -244,11 +244,68 @@ export function getViewerCount(slug: string): number {
  * the room no longer exists. Called when a room is deleted over HTTP.
  */
 export function dropRoom(slug: string): void {
+  cancelRoomCleanup(slug)
   rooms.delete(slug)
   roomChats.delete(slug)
   roomUsers.delete(slug)
   roomBuffering.delete(slug)
   io?.to(slug).emit('room_deleted')
+}
+
+/**
+ * How long a room with no viewers keeps its place before it is fully reset.
+ * Long enough to cover a brief network drop or a quick room re-entry, short
+ * enough never to strand an abandoned room in memory.
+ */
+const EMPTY_ROOM_TTL_MS = 5 * 60 * 1000
+
+/**
+ * After a join, a control that would move the room significantly *backward* is
+ * treated as a fresh client's stale autoplay/seek echo and ignored — a new
+ * client's player fires play/seek at ~0 before it has applied the room's
+ * position, which would otherwise yank everyone back to the start.
+ */
+const JOIN_CONTROL_GRACE_MS = 2500
+const JOIN_BACKWARD_TOLERANCE = 3
+
+/** Pending "reset an empty room" timers, keyed by slug. */
+const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** Cancels a scheduled empty-room reset — called when someone (re)joins. */
+function cancelRoomCleanup(slug: string): void {
+  const timer = roomCleanupTimers.get(slug)
+  if (timer) {
+    clearTimeout(timer)
+    roomCleanupTimers.delete(slug)
+  }
+}
+
+/**
+ * Freezes an emptied room at its current position instead of zeroing it, so a
+ * viewer who returns shortly after a disconnect resumes exactly where they
+ * were. A full reset is scheduled for [EMPTY_ROOM_TTL_MS] later in case nobody
+ * comes back.
+ */
+function parkRoom(slug: string, state: RoomState): void {
+  state.currentTime = effectiveTime(state)
+  state.isPlaying = false
+  state.lastUpdated = Date.now()
+  state.autoPausedForBuffering = false
+
+  cancelRoomCleanup(slug)
+  roomCleanupTimers.set(
+    slug,
+    setTimeout(() => {
+      roomCleanupTimers.delete(slug)
+      const current = rooms.get(slug)
+      if (current && current.viewerCount === 0) {
+        rooms.delete(slug)
+        roomChats.delete(slug)
+        roomBuffering.delete(slug)
+        roomUsers.delete(slug)
+      }
+    }, EMPTY_ROOM_TTL_MS)
+  )
 }
 
 /**
@@ -394,6 +451,9 @@ function registerHandlers(server: Server, socket: Socket) {
     const alreadyInRoom = socket.rooms.has(slug)
     socket.join(slug)
     socket.data.roomSlug = slug
+    socket.data.joinedAt = Date.now()
+    /* A viewer (re)joined — keep the room's frozen position alive. */
+    cancelRoomCleanup(slug)
 
     const state = getRoomState(slug)
     if (!alreadyInRoom) {
@@ -468,6 +528,22 @@ function registerHandlers(server: Server, socket: Socket) {
 
     const currentTime = Number(payload?.currentTime)
     if (!Number.isFinite(currentTime)) return
+
+    /**
+     * Ignore a just-joined client's stale autoplay/seek echo. A fresh client's
+     * player fires play/seek at ~0 before it has applied the room's position,
+     * which would otherwise drag everyone back to the start. Within a short
+     * grace window after join, reject any control that moves the room
+     * significantly backward; genuine controls (and anything after the window)
+     * pass through untouched.
+     */
+    const joinedAt = typeof socket.data.joinedAt === 'number' ? socket.data.joinedAt : 0
+    if (
+      Date.now() - joinedAt < JOIN_CONTROL_GRACE_MS &&
+      effectiveTime(state) - Math.max(0, currentTime) > JOIN_BACKWARD_TOLERANCE
+    ) {
+      return
+    }
 
     state.currentTime = Math.max(0, currentTime)
     state.lastUpdated = Date.now()
@@ -767,13 +843,9 @@ function registerHandlers(server: Server, socket: Socket) {
     if (state) {
       state.viewerCount = Math.max(0, state.viewerCount - 1)
       if (state.viewerCount === 0) {
-        state.isPlaying = false
-        state.currentTime = 0
-        state.lastUpdated = Date.now()
-        state.playbackRate = 1
-        state.autoPausedForBuffering = false
-        roomChats.delete(slug)
-        roomBuffering.delete(slug)
+        /* Freeze the position instead of zeroing it, so re-opening the room
+           within the grace window resumes where they left off. */
+        parkRoom(slug, state)
       }
       broadcastViewerCount(server, slug, state.viewerCount)
     }
@@ -814,18 +886,13 @@ function registerHandlers(server: Server, socket: Socket) {
     state.viewerCount = Math.max(0, state.viewerCount - 1)
 
     /**
-     * When the last viewer leaves, reset the room so the next person to
-     * arrive starts from a clean, paused state.
+     * When the last viewer drops, *park* the room rather than zeroing it: its
+     * position is frozen so a viewer who returns within the grace window (a
+     * brief network drop, a reopened tab) resumes exactly where they were. A
+     * full reset/cleanup runs only if the room stays empty past the window.
      */
     if (state.viewerCount === 0) {
-      state.isPlaying = false
-      state.currentTime = 0
-      state.lastUpdated = Date.now()
-      state.playbackRate = 1
-      state.autoPausedForBuffering = false
-      /* No one is here — let chat and buffer state fade with the room. */
-      roomChats.delete(slug)
-      roomBuffering.delete(slug)
+      parkRoom(slug, state)
     }
 
     broadcastViewerCount(server, slug, state.viewerCount)
