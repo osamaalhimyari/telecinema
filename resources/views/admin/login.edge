@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin login · TeleCinema</title>
+    @vite(['resources/css/admin.css'])
+  </head>
+  <body class="admin-auth">
+    <form method="POST" action="/admin/login" class="admin-card admin-login-card stack">
+      {{ csrfField() }}
+      <div class="admin-brand admin-brand-center">
+        <span class="admin-brand-logo">🎬</span>
+        <span>TeleCinema Admin</span>
+      </div>
+
+      @if(flashMessages.has('error'))
+        <div class="alert alert-error">{{ flashMessages.get('error') }}</div>
+      @end
+
+      <label class="field">
+        <span class="field-label">Email</span>
+        <input class="input" type="email" name="email" required autofocus />
+      </label>
+
+      <label class="field">
+        <span class="field-label">Password</span>
+        <input class="input" type="password" name="password" required />
+      </label>
+
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+  </body>
+</html>

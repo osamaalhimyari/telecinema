@@ -32,6 +32,18 @@ const authConfig = defineConfig({
         model: () => import('#models/user'),
       }),
     }),
+
+    /**
+     * Admin guard — a separate session-based guard for the version-management
+     * dashboard, backed by the `admins` table. Kept distinct from `web` so the
+     * dashboard's login is entirely independent of website users.
+     */
+    admin: sessionGuard({
+      useRememberMeTokens: false,
+      provider: sessionUserProvider({
+        model: () => import('#models/admin'),
+      }),
+    }),
   },
 })
 

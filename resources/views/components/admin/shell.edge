@@ -1,0 +1,47 @@
+@let(pageTitle = $props.get('title', 'Dashboard'))
+@let(activeNav = $props.get('active', 'versions'))
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ pageTitle }} · TeleCinema Admin</title>
+    @vite(['resources/css/admin.css'])
+  </head>
+  <body>
+    <div class="admin">
+      <aside class="admin-sidebar">
+        <div class="admin-brand">
+          <span class="admin-brand-logo">🎬</span>
+          <span>TeleCinema</span>
+        </div>
+        <nav class="admin-nav">
+          <a href="/admin" class="admin-nav-link {{ activeNav === 'versions' ? 'is-active' : '' }}">
+            App versions
+          </a>
+        </nav>
+        <form method="POST" action="/admin/logout" class="admin-logout">
+          {{ csrfField() }}
+          <button type="submit" class="btn btn-ghost btn-block">Log out</button>
+        </form>
+      </aside>
+
+      <main class="admin-main">
+        <header class="admin-topbar">
+          <h1>{{ pageTitle }}</h1>
+        </header>
+
+        @if(flashMessages.has('success'))
+          <div class="alert alert-success">{{ flashMessages.get('success') }}</div>
+        @end
+        @if(flashMessages.has('error'))
+          <div class="alert alert-error">{{ flashMessages.get('error') }}</div>
+        @end
+
+        <div class="admin-content">
+          {{{ await $slots.main() }}}
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

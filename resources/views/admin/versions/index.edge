@@ -1,0 +1,77 @@
+@admin.shell({ title: 'App versions', active: 'versions' })
+  <div class="toolbar">
+    <p class="muted">
+      Builds the app checks against for in-app updates. The newest
+      <strong>published</strong> build is the one users are offered.
+    </p>
+    <a href="/admin/versions/create" class="btn btn-primary">Upload new version</a>
+  </div>
+
+  @if(versions.length === 0)
+    <div class="empty">No versions yet — upload your first APK to get started.</div>
+  @else
+    <div class="admin-card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Version</th>
+            <th>Build</th>
+            <th>Size</th>
+            <th>Update</th>
+            <th>Status</th>
+            <th>Uploaded</th>
+            <th class="ta-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @each(v in versions)
+            @let(sizeMb = (v.fileSize / 1048576).toFixed(1))
+            <tr>
+              <td><strong>{{ v.versionName }}</strong></td>
+              <td>{{ v.versionCode }}</td>
+              <td class="muted">{{ sizeMb }} MB</td>
+              <td>
+                @if(v.isMandatory)
+                  <span class="badge badge-warn">Forced</span>
+                @else
+                  <span class="muted">Optional</span>
+                @end
+              </td>
+              <td>
+                @if(v.status === 'blocked')
+                  <span class="badge badge-danger">Blocked</span>
+                @else
+                  <span class="badge badge-ok">Published</span>
+                @end
+              </td>
+              <td class="muted">{{ v.createdAt ? v.createdAt.toFormat('yyyy-LL-dd HH:mm') : '—' }}</td>
+              <td class="ta-right">
+                <div class="actions">
+                  <a class="btn btn-sm" href="/api/app/download/{{ v.id }}">Download</a>
+                  <a class="btn btn-sm" href="/admin/versions/{{ v.id }}/edit">Edit</a>
+                  @if(v.status === 'blocked')
+                    <form method="POST" action="/admin/versions/{{ v.id }}/unblock" class="inline">
+                      {{ csrfField() }}
+                      <button class="btn btn-sm">Unblock</button>
+                    </form>
+                  @else
+                    <form method="POST" action="/admin/versions/{{ v.id }}/block" class="inline"
+                      onsubmit="return confirm('Block this build? Anyone still on it will be forced to update.')">
+                      {{ csrfField() }}
+                      <button class="btn btn-sm btn-warn">Block</button>
+                    </form>
+                  @end
+                  <form method="POST" action="/admin/versions/{{ v.id }}/delete" class="inline"
+                    onsubmit="return confirm('Delete this build and its APK file? This cannot be undone.')">
+                    {{ csrfField() }}
+                    <button class="btn btn-sm btn-danger">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          @end
+        </tbody>
+      </table>
+    </div>
+  @end
+@end

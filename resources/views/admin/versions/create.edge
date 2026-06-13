@@ -1,0 +1,199 @@
+@admin.shell({ title: 'Upload new version', active: 'versions' })
+  <div class="admin-card admin-form-card">
+    <div class="alert alert-error" id="upError" hidden></div>
+
+    <form method="POST" action="/admin/versions" enctype="multipart/form-data" class="stack"
+      id="uploadForm">
+      {{ csrfField() }}
+
+      <label class="field">
+        <span class="field-label">APK file</span>
+        <input class="input" type="file" name="apk" id="apkInput"
+          accept=".apk,application/vnd.android.package-archive" required />
+        <span class="field-hint">
+          The version name and build number are read straight from the APK — you don't type them.
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Release notes <span class="muted">(optional)</span></span>
+        <textarea class="input" name="release_notes" rows="5"
+          placeholder="What's new in this build…"></textarea>
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" name="is_mandatory" value="1" />
+        <span>Force update — block the app until users install this build</span>
+      </label>
+
+      <div class="form-actions">
+        <a href="/admin" class="btn btn-ghost">Cancel</a>
+        <button type="submit" class="btn btn-primary" id="uploadBtn">Upload &amp; publish</button>
+      </div>
+    </form>
+
+    <!-- Live upload progress (shown only while an XHR upload is in flight). -->
+    <div class="upload-progress" id="uploadProgress" hidden>
+      <div class="upload-progress-head">
+        <span class="upload-progress-label" id="upStatus">Uploading…</span>
+        <span class="upload-progress-pct" id="upPct">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-bar" id="upBar"></div>
+      </div>
+      <div class="upload-progress-meta">
+        <span id="upBytes">—</span>
+        <span id="upSpeed">—</span>
+        <span id="upEta">—</span>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-danger" id="upCancel">Cancel upload</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById('uploadForm')
+      var fileInput = document.getElementById('apkInput')
+      var uploadBtn = document.getElementById('uploadBtn')
+      var errorBox = document.getElementById('upError')
+      var progress = document.getElementById('uploadProgress')
+      var bar = document.getElementById('upBar')
+      var statusEl = document.getElementById('upStatus')
+      var pctEl = document.getElementById('upPct')
+      var bytesEl = document.getElementById('upBytes')
+      var speedEl = document.getElementById('upSpeed')
+      var etaEl = document.getElementById('upEta')
+      var cancelBtn = document.getElementById('upCancel')
+
+      var xhr = null
+
+      function fmtBytes(n) {
+        if (!isFinite(n) || n < 0) return '—'
+        if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GB'
+        if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
+        if (n >= 1024) return (n / 1024).toFixed(0) + ' KB'
+        return n + ' B'
+      }
+
+      function fmtTime(secs) {
+        if (!isFinite(secs) || secs < 0) return '—'
+        secs = Math.round(secs)
+        if (secs < 60) return secs + 's'
+        var m = Math.floor(secs / 60)
+        var s = secs % 60
+        if (m < 60) return m + 'm ' + s + 's'
+        var h = Math.floor(m / 60)
+        return h + 'h ' + (m % 60) + 'm'
+      }
+
+      function showError(msg) {
+        errorBox.textContent = msg
+        errorBox.hidden = false
+      }
+
+      function setUploading(on) {
+        progress.hidden = !on
+        uploadBtn.disabled = on
+        fileInput.disabled = on
+        uploadBtn.textContent = on ? 'Uploading…' : 'Upload & publish'
+      }
+
+      function resetProgress() {
+        bar.style.width = '0%'
+        bar.classList.remove('is-indeterminate')
+        pctEl.textContent = '0%'
+        statusEl.textContent = 'Uploading…'
+        bytesEl.textContent = '—'
+        speedEl.textContent = '—'
+        etaEl.textContent = '—'
+      }
+
+      form.addEventListener('submit', function (e) {
+        // No file? Let the browser's native "required" validation handle it.
+        if (!fileInput.files || !fileInput.files.length) return
+
+        e.preventDefault()
+
+        // Build the payload BEFORE disabling any controls. setUploading(true)
+        // disables the file input, and disabled controls are excluded from
+        // FormData — capturing it after would drop the APK and post an empty
+        // body (~284 B of just the text fields).
+        var data = new FormData(form)
+
+        errorBox.hidden = true
+        resetProgress()
+        setUploading(true)
+
+        var startTime = Date.now()
+        var lastTime = startTime
+        var lastLoaded = 0
+        var smoothedBps = 0 // exponential moving average of bytes/sec
+
+        xhr = new XMLHttpRequest()
+        xhr.open('POST', form.action, true)
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
+        xhr.responseType = 'json'
+
+        xhr.upload.addEventListener('progress', function (evt) {
+          if (!evt.lengthComputable) return
+          var now = Date.now()
+          var pct = Math.round((evt.loaded / evt.total) * 100)
+          bar.style.width = pct + '%'
+          pctEl.textContent = pct + '%'
+          bytesEl.textContent = fmtBytes(evt.loaded) + ' / ' + fmtBytes(evt.total)
+
+          var dt = (now - lastTime) / 1000
+          if (dt > 0.15) {
+            var instBps = (evt.loaded - lastLoaded) / dt
+            smoothedBps = smoothedBps ? smoothedBps * 0.7 + instBps * 0.3 : instBps
+            lastTime = now
+            lastLoaded = evt.loaded
+            if (smoothedBps > 0) {
+              speedEl.textContent = fmtBytes(smoothedBps) + '/s'
+              etaEl.textContent = fmtTime((evt.total - evt.loaded) / smoothedBps) + ' left'
+            }
+          }
+
+          // Bytes are all sent — the server is still inspecting & saving the APK.
+          if (evt.loaded >= evt.total) {
+            statusEl.textContent = 'Processing on server…'
+            bar.classList.add('is-indeterminate')
+            speedEl.textContent = ''
+            etaEl.textContent = ''
+          }
+        })
+
+        xhr.addEventListener('load', function () {
+          var body = xhr.response || {}
+          if (xhr.status >= 200 && xhr.status < 300 && body.redirect) {
+            statusEl.textContent = 'Done — redirecting…'
+            window.location = body.redirect
+            return
+          }
+          setUploading(false)
+          bar.classList.remove('is-indeterminate')
+          showError(body.error || ('Upload failed (HTTP ' + xhr.status + ').'))
+        })
+
+        xhr.addEventListener('error', function () {
+          setUploading(false)
+          bar.classList.remove('is-indeterminate')
+          showError('Network error during upload. Please try again.')
+        })
+
+        xhr.addEventListener('abort', function () {
+          setUploading(false)
+          bar.classList.remove('is-indeterminate')
+        })
+
+        xhr.send(data)
+      })
+
+      cancelBtn.addEventListener('click', function () {
+        if (xhr) xhr.abort()
+      })
+    })()
+  </script>
+@end

@@ -1,0 +1,28 @@
+@admin.shell({ title: 'Edit version', active: 'versions' })
+  <div class="admin-card admin-form-card stack">
+    <div class="version-summary">
+      <div><span class="muted">Version</span><strong>{{ version.versionName }}</strong></div>
+      <div><span class="muted">Build</span><strong>{{ version.versionCode }}</strong></div>
+      <div><span class="muted">Package</span><strong>{{ version.packageName }}</strong></div>
+    </div>
+
+    <form method="POST" action="/admin/versions/{{ version.id }}" class="stack">
+      {{ csrfField() }}
+
+      <label class="field">
+        <span class="field-label">Release notes</span>
+        <textarea class="input" name="release_notes" rows="5">{{ version.releaseNotes || '' }}</textarea>
+      </label>
+
+      <label class="checkbox">
+        <input type="checkbox" name="is_mandatory" value="1" {{ version.isMandatory ? 'checked' : '' }} />
+        <span>Force update — block the app until users install this build</span>
+      </label>
+
+      <div class="form-actions">
+        <a href="/admin" class="btn btn-ghost">Cancel</a>
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+@end

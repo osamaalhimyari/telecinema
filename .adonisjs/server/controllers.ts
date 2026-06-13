@@ -4,7 +4,12 @@
  */
 
 export const controllers = {
+  admin: {
+    AdminSession: () => import('#controllers/admin/admin_session_controller'),
+    AppVersions: () => import('#controllers/admin/app_versions_controller'),
+  },
   api: {
+    AppVersionsApi: () => import('#controllers/api/app_versions_api_controller'),
     FavoritesApi: () => import('#controllers/api/favorites_api_controller'),
     RoomsApi: () => import('#controllers/api/rooms_api_controller'),
     TopcinemaApi: () => import('#controllers/api/topcinema_api_controller'),

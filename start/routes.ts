@@ -18,6 +18,9 @@ const VideosController = () => import('#controllers/videos_controller')
 const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
 const FavoritesApiController = () => import('#controllers/api/favorites_api_controller')
 const TopcinemaApiController = () => import('#controllers/api/topcinema_api_controller')
+const AppVersionsApiController = () => import('#controllers/api/app_versions_api_controller')
+const AdminSessionController = () => import('#controllers/admin/admin_session_controller')
+const AdminVersionsController = () => import('#controllers/admin/app_versions_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -140,6 +143,11 @@ router
     // Isolated "second way" — topcinema direct-download source resolution.
     router.get('/topcinema/series', [TopcinemaApiController, 'series']).as('api.topcinema.series')
     router.get('/topcinema/resolve', [TopcinemaApiController, 'resolve']).as('api.topcinema.resolve')
+
+    // In-app updates — the client asks if a newer build exists, then downloads
+    // the APK (range-supported) from these two routes.
+    router.get('/app/version', [AppVersionsApiController, 'check']).as('api.app.version')
+    router.get('/app/download/:id', [AppVersionsApiController, 'download']).as('api.app.download')
   })
   .prefix('/api')
 
@@ -164,3 +172,29 @@ router
     router.post('logout', [controllers.Session, 'destroy'])
   })
   .use(middleware.auth())
+
+/*
+|--------------------------------------------------------------------------
+| Admin dashboard — in-app version management
+|--------------------------------------------------------------------------
+|
+| A self-contained panel (own `admin` auth guard, own login) for publishing the
+| Android builds the Flutter client updates to. Login is public; everything else
+| sits behind the `adminAuth` middleware.
+*/
+router.get('/admin/login', [AdminSessionController, 'create']).as('admin.login')
+router.post('/admin/login', [AdminSessionController, 'store']).as('admin.login.store')
+
+router
+  .group(() => {
+    router.post('/admin/logout', [AdminSessionController, 'destroy']).as('admin.logout')
+    router.get('/admin', [AdminVersionsController, 'index']).as('admin.versions.index')
+    router.get('/admin/versions/create', [AdminVersionsController, 'create']).as('admin.versions.create')
+    router.post('/admin/versions', [AdminVersionsController, 'store']).as('admin.versions.store')
+    router.get('/admin/versions/:id/edit', [AdminVersionsController, 'edit']).as('admin.versions.edit')
+    router.post('/admin/versions/:id', [AdminVersionsController, 'update']).as('admin.versions.update')
+    router.post('/admin/versions/:id/block', [AdminVersionsController, 'block']).as('admin.versions.block')
+    router.post('/admin/versions/:id/unblock', [AdminVersionsController, 'unblock']).as('admin.versions.unblock')
+    router.post('/admin/versions/:id/delete', [AdminVersionsController, 'destroy']).as('admin.versions.destroy')
+  })
+  .use(middleware.adminAuth())

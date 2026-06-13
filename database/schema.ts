@@ -58,3 +58,45 @@ export class UserSchema extends BaseModel {
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime | null
 }
+
+export class AdminSchema extends BaseModel {
+  static $columns = ['createdAt', 'email', 'id', 'password', 'updatedAt'] as const
+  $columns = AdminSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare email: string
+  @column({ isPrimary: true })
+  declare id: number
+  @column({ serializeAs: null })
+  declare password: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime | null
+}
+
+export class AppVersionSchema extends BaseModel {
+  static $columns = ['createdAt', 'fileName', 'fileSize', 'id', 'isMandatory', 'packageName', 'releaseNotes', 'status', 'updatedAt', 'versionCode', 'versionName'] as const
+  $columns = AppVersionSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare fileName: string
+  @column()
+  declare fileSize: number
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare isMandatory: boolean
+  @column()
+  declare packageName: string
+  @column()
+  declare releaseNotes: string | null
+  @column()
+  declare status: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime | null
+  @column()
+  declare versionCode: number
+  @column()
+  declare versionName: string
+}
