@@ -27,7 +27,7 @@
           @each(v in versions)
             @let(sizeMb = (v.fileSize / 1048576).toFixed(1))
             <tr>
-              <td><strong>{{ v.versionName }}</strong></td>
+              <td><strong>{{ v.versionName }}+{{ v.versionCode }}</strong></td>
               <td>{{ v.versionCode }}</td>
               <td class="muted">{{ sizeMb }} MB</td>
               <td>
