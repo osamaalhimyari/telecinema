@@ -376,6 +376,14 @@
     video.addEventListener('loadedmetadata', function () {
       seek.max = String(video.duration || 0)
       durTime.textContent = formatTime(video.duration)
+      // A `sync` that arrived before the video could seek (the usual case right
+      // after joining a room that's already mid-playback) silently fails to set
+      // currentTime, leaving this client stuck at 0. Now that seeking works,
+      // re-apply the latest room state so we jump to the shared position — and,
+      // crucially, so we never later echo that stale 0 back and yank everyone to
+      // the start. applySync runs under the sync guard, so this re-seek/play is
+      // not broadcast to the room.
+      if (lastSync) applySync(lastSync)
     })
 
     /**
@@ -660,11 +668,17 @@
 
     playGate.addEventListener('click', function () {
       hideGate()
+      // Raise the sync guard so the play() below — which may run before the
+      // room's position has been applied (video at 0) — doesn't echo a stale
+      // control back and reset everyone. Re-join to pull the master state; the
+      // incoming `sync` re-applies the correct position under the same guard.
+      isSyncing = true
       var playPromise = video.play()
       if (playPromise && playPromise.catch) playPromise.catch(function () {})
-      // Re-join to pull the current master state (the server will not
-      // double-count this socket).
       socket.emit('join_room', { roomSlug: slug })
+      // Fallback release in case no fresh `sync` arrives promptly; applySync
+      // re-raises and releases the guard when one does.
+      setTimeout(function () { isSyncing = false }, 600)
     })
   }
 
@@ -2391,6 +2405,237 @@
   })
 
   /* ------------------------------------------------------------------------
+     Collaborative drawing — pen tool over the video
+     ------------------------------------------------------------------------
+     A port of the mobile app's draw layer. Every viewer's strokes (this
+     device's local echo plus relayed `draw` events) render on one canvas;
+     each finished line lingers then fades in place. While draw mode is on,
+     pointer drags are captured, normalized 0..1 against the player box, and
+     streamed as `draw` segments (throttled ~25/s) so others watch the line
+     form. Colors, widths and fade timing match the app exactly.
+     ------------------------------------------------------------------------ */
+
+  ;(function () {
+    var canvas = document.getElementById('drawCanvas')
+    var toggle = document.getElementById('drawToggle')
+    var palette = document.getElementById('drawPalette')
+    var paletteClose = document.getElementById('drawPaletteClose')
+    if (!canvas || !toggle) return
+    var ctx = canvas.getContext('2d')
+
+    var LINGER_MS = 1800
+    var FADE_MS = 800
+    var MAX_ALIVE_MS = 10000
+    var THROTTLE_MS = 40
+    var STROKE_WIDTH = 4
+
+    var active = false
+    var color = '#FF5252'
+    /** Active strokes keyed by `senderId:strokeId`. */
+    var strokes = {}
+    var rafId = null
+
+    /* ---- Canvas sizing (devicePixelRatio-aware) ---- */
+    function resize() {
+      var rect = canvas.getBoundingClientRect()
+      var dpr = window.devicePixelRatio || 1
+      canvas.width = Math.max(1, Math.round(rect.width * dpr))
+      canvas.height = Math.max(1, Math.round(rect.height * dpr))
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+    window.addEventListener('resize', resize)
+    // The player box changes on (un)fullscreen — re-measure after the layout settles.
+    document.addEventListener('fullscreenchange', function () { setTimeout(resize, 60) })
+    document.addEventListener('webkitfullscreenchange', function () { setTimeout(resize, 60) })
+    resize()
+
+    /* ---- Render loop (runs only while strokes exist) ---- */
+    function opacityOf(s, now) {
+      if (s.doneAt == null) return 1
+      var e = now - s.doneAt
+      if (e <= LINGER_MS) return 1
+      return Math.max(0, 1 - (e - LINGER_MS) / FADE_MS)
+    }
+
+    function render() {
+      var now = Date.now()
+      var rect = canvas.getBoundingClientRect()
+      var w = rect.width
+      var h = rect.height
+      ctx.clearRect(0, 0, w, h)
+
+      var any = false
+      Object.keys(strokes).forEach(function (key) {
+        var s = strokes[key]
+        if (s.doneAt != null) {
+          if (now - s.doneAt > LINGER_MS + FADE_MS) { delete strokes[key]; return }
+        } else if (now - s.createdAt > MAX_ALIVE_MS) {
+          delete strokes[key]; return
+        }
+        any = true
+        var op = opacityOf(s, now)
+        if (op <= 0 || !s.points.length) return
+        ctx.globalAlpha = op
+        ctx.strokeStyle = s.color
+        ctx.fillStyle = s.color
+        ctx.lineWidth = STROKE_WIDTH
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        if (s.points.length === 1) {
+          // A tap with no drag — render a dot.
+          ctx.beginPath()
+          ctx.arc(s.points[0].x * w, s.points[0].y * h, 2.4, 0, Math.PI * 2)
+          ctx.fill()
+          return
+        }
+        ctx.beginPath()
+        ctx.moveTo(s.points[0].x * w, s.points[0].y * h)
+        for (var i = 1; i < s.points.length; i++) {
+          ctx.lineTo(s.points[i].x * w, s.points[i].y * h)
+        }
+        ctx.stroke()
+      })
+      ctx.globalAlpha = 1
+
+      if (any) {
+        rafId = requestAnimationFrame(render)
+      } else {
+        rafId = null
+        ctx.clearRect(0, 0, w, h)
+      }
+    }
+
+    function ensureRender() {
+      if (rafId == null) rafId = requestAnimationFrame(render)
+    }
+
+    function addSegment(key, colorHex, pts, done) {
+      var s = strokes[key]
+      if (!s) {
+        s = { color: colorHex || '#ffffff', points: [], createdAt: Date.now(), doneAt: null }
+        strokes[key] = s
+      }
+      for (var i = 0; i < pts.length; i++) s.points.push(pts[i])
+      if (done && s.doneAt == null) s.doneAt = Date.now()
+      ensureRender()
+    }
+
+    /* ---- Incoming strokes from other viewers ---- */
+    socket.on('draw', function (payload) {
+      if (!payload) return
+      var id = typeof payload.id === 'string' ? payload.id : ''
+      var strokeId = typeof payload.strokeId === 'string' ? payload.strokeId : ''
+      if (!strokeId) return
+      var pts = []
+      if (Array.isArray(payload.points)) {
+        payload.points.forEach(function (p) {
+          if (Array.isArray(p) && p.length >= 2) pts.push({ x: +p[0], y: +p[1] })
+        })
+      }
+      addSegment(id + ':' + strokeId, payload.color, pts, payload.done === true)
+    })
+
+    /* ---- Local drawing — capture, throttle, stream ---- */
+    var curStrokeId = null
+    var localKey = null
+    var pending = []
+    var lastFlush = 0
+
+    function newStrokeId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+    }
+
+    function normalize(evt) {
+      var rect = canvas.getBoundingClientRect()
+      var x = rect.width ? (evt.clientX - rect.left) / rect.width : 0
+      var y = rect.height ? (evt.clientY - rect.top) / rect.height : 0
+      return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) }
+    }
+
+    function flush(done) {
+      if (!curStrokeId) return
+      if (!pending.length && !done) return
+      var pts = pending.slice()
+      pending = []
+      lastFlush = Date.now()
+      // Local echo so the drawer sees their own line immediately.
+      addSegment(localKey, color, pts, done)
+      socket.emit('draw', {
+        strokeId: curStrokeId,
+        color: color,
+        points: pts.map(function (p) { return [p.x, p.y] }),
+        done: done,
+      })
+    }
+
+    function onDown(evt) {
+      if (!active) return
+      evt.preventDefault()
+      curStrokeId = newStrokeId()
+      localKey = 'local:' + curStrokeId
+      pending = [normalize(evt)]
+      flush(false)
+      if (canvas.setPointerCapture && evt.pointerId != null) {
+        try { canvas.setPointerCapture(evt.pointerId) } catch (e) {}
+      }
+    }
+
+    function onMove(evt) {
+      if (!active || !curStrokeId) return
+      evt.preventDefault()
+      pending.push(normalize(evt))
+      if (Date.now() - lastFlush >= THROTTLE_MS) flush(false)
+    }
+
+    function onUp(evt) {
+      if (!curStrokeId) return
+      if (evt && evt.preventDefault) evt.preventDefault()
+      flush(true)
+      curStrokeId = null
+      localKey = null
+    }
+
+    canvas.addEventListener('pointerdown', onDown)
+    canvas.addEventListener('pointermove', onMove)
+    canvas.addEventListener('pointerup', onUp)
+    canvas.addEventListener('pointercancel', onUp)
+
+    /* ---- Toggle + palette ---- */
+    function setActive(on) {
+      active = on
+      player.classList.toggle('is-drawing', on)
+      if (palette) palette.hidden = !on
+      toggle.setAttribute('aria-pressed', on ? 'true' : 'false')
+      if (!on) onUp(null)
+    }
+
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation()
+      setActive(!active)
+    })
+
+    if (paletteClose) {
+      paletteClose.addEventListener('click', function (e) {
+        e.stopPropagation()
+        setActive(false)
+      })
+    }
+
+    var swatches = palette ? palette.querySelectorAll('.draw-swatch') : []
+    Array.prototype.forEach.call(swatches, function (sw) {
+      sw.addEventListener('click', function (e) {
+        e.stopPropagation()
+        color = sw.getAttribute('data-color') || '#FF5252'
+        Array.prototype.forEach.call(swatches, function (o) {
+          o.classList.toggle('is-selected', o === sw)
+        })
+        // Picking a color engages draw mode (matches the app).
+        setActive(true)
+      })
+    })
+  })()
+
+  /* ------------------------------------------------------------------------
      Keyboard shortcuts — keyboard-driven player controls
      ------------------------------------------------------------------------ */
 
@@ -2452,6 +2697,11 @@
       case 'm':
       case 'M':
         micBtn.click()
+        break
+      case 'd':
+      case 'D':
+        var drawToggleBtn = document.getElementById('drawToggle')
+        if (drawToggleBtn) drawToggleBtn.click()
         break
       case '?':
         openShortcuts()
@@ -2752,8 +3002,26 @@
     hideControls()
   })
 
-  player.addEventListener('click', function () {
-    if (isFullscreen()) scheduleControlsHide()
+  player.addEventListener('click', function (e) {
+    // The synthetic click that trails a touch tap is already handled by the
+    // touchstart toggle above — ignore it so the bars don't double-toggle.
+    if (Date.now() < ignoreMouseUntil) return
+    // A click on a control widget (a button or the seek bar) drives that widget
+    // and just keeps the bars up — it never toggles them away.
+    if (tappedOnControls(e.target)) {
+      scheduleControlsHide()
+      return
+    }
+    // A click anywhere else on the video toggles the bars: show if hidden, hide
+    // if showing — the desktop counterpart of the tap-to-toggle above.
+    if (player.classList.contains('is-idle')) {
+      scheduleControlsHide()
+    } else {
+      clearTimeout(idleTimer)
+      hideControls()
+      // Stop the trailing mouse activity from instantly bringing them back.
+      ignoreMouseUntil = Date.now() + 700
+    }
   })
 
   // Hovering either control bar keeps it open; leaving restarts the timer.
@@ -3132,6 +3400,9 @@
     var chatPanel = document.getElementById('chatPanel')
     var chatToggle = document.getElementById('chatToggle')
     var chatToggleBadge = document.getElementById('chatToggleBadge')
+    // In-player chat toggle, shown only in fullscreen (the top-bar one is hidden there).
+    var fsChatToggle = document.getElementById('fsChatToggle')
+    var fsChatToggleBadge = document.getElementById('fsChatToggleBadge')
     var chatClose = document.getElementById('chatClose')
     var chatMessages = document.getElementById('chatMessages')
     var chatEmpty = document.getElementById('chatEmpty')
@@ -3148,14 +3419,17 @@
     var isOpen = false
 
     function updateUnreadBadge() {
-      if (!chatToggleBadge) return
-      if (unread <= 0) {
-        chatToggleBadge.hidden = true
-        chatToggleBadge.textContent = '0'
-      } else {
-        chatToggleBadge.hidden = false
-        chatToggleBadge.textContent = unread > 99 ? '99+' : String(unread)
-      }
+      var label = unread > 99 ? '99+' : String(unread)
+      ;[chatToggleBadge, fsChatToggleBadge].forEach(function (badge) {
+        if (!badge) return
+        if (unread <= 0) {
+          badge.hidden = true
+          badge.textContent = '0'
+        } else {
+          badge.hidden = false
+          badge.textContent = label
+        }
+      })
     }
 
     function openChat() {
@@ -3181,6 +3455,7 @@
     }
 
     if (chatToggle) chatToggle.addEventListener('click', toggleChat)
+    if (fsChatToggle) fsChatToggle.addEventListener('click', toggleChat)
     if (chatClose) chatClose.addEventListener('click', closeChat)
 
     /**

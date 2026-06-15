@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Watch Party — Rooms</title>
-    <link rel="stylesheet" href="/css/app.css?v=21" />
+    <link rel="stylesheet" href="/css/app.css?v=22" />
     <script src="/js/guard.js?v=21"></script>
   </head>
   <body class="page-home">
@@ -16,7 +16,17 @@
           <span class="brand-mark">◐</span>
           <span class="brand-name">Watch Party</span>
         </div>
-        <a class="btn-primary" href="/create">＋ Create a room</a>
+        <div class="site-header-actions">
+          @if(latestApp)
+            <a
+              class="btn-ghost"
+              href="/api/app/download/{{ latestApp.id }}"
+              download
+              title="Download the Android app (v{{ latestApp.versionName }})"
+            >⬇ Get the app <span class="app-version-tag">v{{ latestApp.versionName }}</span></a>
+          @end
+          <a class="btn-primary" href="/create">＋ Create a room</a>
+        </div>
       </div>
       <p class="brand-tagline">Pick a room and watch in perfect sync with everyone else inside.</p>
       <div class="home-toolbar">

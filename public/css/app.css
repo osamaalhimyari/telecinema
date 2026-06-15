@@ -236,7 +236,12 @@ a {
 .page-room {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  /* `vh` is the fallback; `dvh` tracks the *visible* viewport so the player
+     never extends under the mobile browser's URL bar (which would push the
+     bottom controls off-screen). `height` pins it so the player fits exactly. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100dvh;
 }
 
 .room-topbar {
@@ -316,6 +321,10 @@ a {
 
 .player-stage {
   flex: 1;
+  /* Let the flex child shrink to the available space instead of overflowing
+     past the bottom of the viewport (default min-height:auto would keep it
+     at its content size and clip the controls). */
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1178,6 +1187,18 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.site-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-version-tag {
+  font-size: 0.78rem;
+  font-weight: 700;
+  opacity: 0.7;
 }
 
 .empty-state .btn-primary {
@@ -2150,6 +2171,182 @@ a {
 
 .reaction-btn:active {
   transform: scale(0.9);
+}
+
+/* ==========================================================================
+   Collaborative drawing — pen tool over the video (mirrors the mobile app)
+   ========================================================================== */
+
+/* Renders every viewer's strokes. Pointer-transparent until draw mode is on so
+   it never blocks the video/controls; the high z-index keeps strokes above the
+   controls gradient. `.is-drawing` (toggled by room.js on the player) flips it
+   to capture touches. */
+.draw-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 6;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.player.is-drawing .draw-canvas {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* Pen toggle — top-right, below the top-controls row; same round style as the
+   reaction toggle, and turns accent while drawing. */
+.draw-toggle {
+  position: absolute;
+  top: 70px;
+  right: 16px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--border);
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  backdrop-filter: blur(4px);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.draw-toggle:hover {
+  background: rgba(45, 212, 191, 0.2);
+  border-color: var(--accent-dim);
+  transform: scale(1.1);
+}
+
+.draw-toggle:active {
+  transform: scale(0.92);
+}
+
+.player.is-drawing .draw-toggle {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06201d;
+}
+
+/* In-player chat toggle — hidden normally (the top bar owns chat), revealed
+   only in fullscreen where the top bar isn't rendered. Sits top-right below the
+   draw toggle, matching the other floating buttons. */
+.player-chat-toggle {
+  position: absolute;
+  top: 116px;
+  right: 16px;
+  z-index: 7;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--border);
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  backdrop-filter: blur(4px);
+}
+
+.player-chat-toggle:hover {
+  background: rgba(45, 212, 191, 0.2);
+  border-color: var(--accent-dim);
+  transform: scale(1.1);
+}
+
+.player-chat-toggle .chat-toggle-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  margin: 0;
+}
+
+.player:fullscreen .player-chat-toggle {
+  display: flex;
+}
+.player:-webkit-full-screen .player-chat-toggle {
+  display: flex;
+}
+.player.is-fullscreen .player-chat-toggle {
+  display: flex;
+}
+
+/* Pen palette — bottom-center pill, shown only while drawing. */
+.draw-palette {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+.draw-palette[hidden] {
+  display: none;
+}
+
+.draw-swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--swatch);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, border-width 0.12s ease;
+}
+
+.draw-swatch:hover {
+  transform: scale(1.15);
+}
+
+.draw-swatch.is-selected {
+  border-color: #fff;
+  border-width: 3px;
+}
+
+.draw-palette-divider {
+  width: 1px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.draw-palette-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.draw-palette-close:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 @keyframes reactionFloat {

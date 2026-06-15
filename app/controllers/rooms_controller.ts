@@ -1,9 +1,12 @@
 import { unlink, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import Room from '#models/room'
+import AppVersion from '#models/app_version'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
 import { startUrlDownload, getJob } from '#services/video_downloader'
+import { isYoutubeUrl } from '#services/youtube_downloader'
+import { resolveYoutubeStream } from '#services/youtube_stream'
 import { searchOpenSubtitles, downloadOpenSubtitle } from '#services/opensubtitles'
 import {
   startTorrentRoom,
@@ -57,7 +60,10 @@ export default class RoomsController {
    */
   async index({ view }: HttpContext) {
     const rooms = await Room.query().orderBy('id', 'desc')
-    return view.render('home', { rooms })
+    // The newest published Android build, so the home header can offer a direct
+    // APK download. Null when nothing has been published yet (button hidden).
+    const latestApp = await AppVersion.latestPublished()
+    return view.render('home', { rooms, latestApp })
   }
 
   /**
@@ -143,6 +149,55 @@ export default class RoomsController {
       if (wantsJson) return response.status(422).json({ error: message })
       session.flash('error', message)
       return response.redirect().back()
+    }
+
+    /**
+     * YouTube flow — a YouTube link is *streamed*, never downloaded. The watch
+     * URL is stored on the room and resolved on demand to a direct googlevideo
+     * stream, which the server proxies (with Range support) over `/youtube/:slug`
+     * so every client plays it as an ordinary synced video. Handles both an
+     * explicit `youtube` roomType and a YouTube link pasted into the "download
+     * from link" field. The room is created synchronously (nothing to download),
+     * so we resolve once up front to validate the link and warm the cache; a link
+     * that can't be resolved never leaves a dead room behind.
+     */
+    if (roomType === 'youtube' || (roomType === 'download' && videoUrl && isYoutubeUrl(videoUrl))) {
+      if (!videoUrl || !isYoutubeUrl(videoUrl)) return fail('Please paste a YouTube link.')
+
+      const base = slugify(name) || 'room'
+      let slug = base
+      while (await Room.findBy('slug', slug)) {
+        slug = `${base}-${Math.random().toString(36).slice(2, 6)}`
+      }
+
+      const room = await Room.create({
+        name,
+        slug,
+        videoFilename: '',
+        externalUrl: videoUrl,
+        thumbnailFilename: '',
+        roomType: 'youtube',
+        isUserCreated: true,
+        passwordHash: password ? await hash.make(password) : null,
+        reactions: reactions ?? null,
+        category: category ?? null,
+      })
+
+      try {
+        await resolveYoutubeStream(slug, videoUrl)
+      } catch {
+        await room.delete()
+        return fail('That YouTube link could not be streamed. Is yt-dlp installed on the server?')
+      }
+
+      // The creator already knows the password — unlock the room for them.
+      if (room.hasPassword) {
+        session.put(this.unlockKey(room.id), true)
+      }
+
+      if (wantsJson) return response.json({ redirectTo: `/room/${room.slug}` })
+      session.flash('success', `Room "${room.name}" is ready.`)
+      return response.redirect(`/room/${room.slug}`)
     }
 
     /**

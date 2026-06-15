@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ room.name }} — Watch Party</title>
-    <link rel="stylesheet" href="/css/app.css?v=22" />
+    <link rel="stylesheet" href="/css/app.css?v=24" />
     <script src="/js/guard.js?v=21"></script>
   </head>
   <body class="page-room">
@@ -102,6 +102,19 @@
               preload="auto"
               playsinline
             ></video>
+          @elseif(room.roomType === 'youtube')
+            {{-- youtube rooms STREAM from the server — they are never downloaded.
+                 yt-dlp resolves the watch URL to a direct googlevideo stream,
+                 which the server proxies (range-supported) over /youtube/:slug,
+                 so the browser plays it as an ordinary synced <video> — no
+                 third-party iframe and no file on disk. --}}
+            <video
+              id="video"
+              class="player-video"
+              src="/youtube/{{ room.slug }}"
+              preload="auto"
+              playsinline
+            ></video>
           @else
             {{-- upload/download rooms serve a file on disk from /video/:filename,
                  a range-supported <video> source. --}}
@@ -121,6 +134,12 @@
           <div class="subtitle-overlay" id="subtitleOverlay">
             <span class="subtitle-text" id="subtitleText"></span>
           </div>
+
+          {{-- Collaborative drawing surface — renders every viewer's ephemeral
+               strokes over the video (local echo + relayed `draw` events), each
+               fading on its own. Pointer-transparent until draw mode is engaged
+               (room.js toggles `.is-drawing` on the player to capture touches). --}}
+          <canvas class="draw-canvas" id="drawCanvas"></canvas>
 
           {{-- Top controls: speaking indicator + viewer count + fullscreen --}}
           <div class="top-controls" id="topControls">
@@ -249,6 +268,25 @@
           @end
         </div>
 
+        {{-- Draw toggle (top-right corner) — engages drawing mode; the pen
+             palette appears while it's on. Mirrors the mobile app's pen tool. --}}
+        <button class="draw-toggle" id="drawToggle" type="button" title="Draw on the video (D)" aria-label="Toggle drawing">✏️</button>
+
+        {{-- Pen palette — pick a color, or close. Shown only while drawing. The
+             swatch colors match the mobile app's palette exactly. --}}
+        <div class="draw-palette" id="drawPalette" hidden>
+          <button class="draw-swatch is-selected" type="button" data-color="#FF5252" style="--swatch: #FF5252" aria-label="Red pen"></button>
+          <button class="draw-swatch" type="button" data-color="#FF9800" style="--swatch: #FF9800" aria-label="Orange pen"></button>
+          <button class="draw-swatch" type="button" data-color="#FFEB3B" style="--swatch: #FFEB3B" aria-label="Yellow pen"></button>
+          <button class="draw-swatch" type="button" data-color="#69F0AE" style="--swatch: #69F0AE" aria-label="Green pen"></button>
+          <button class="draw-swatch" type="button" data-color="#40C4FF" style="--swatch: #40C4FF" aria-label="Blue pen"></button>
+          <button class="draw-swatch" type="button" data-color="#E040FB" style="--swatch: #E040FB" aria-label="Purple pen"></button>
+          <button class="draw-swatch" type="button" data-color="#FFFFFF" style="--swatch: #FFFFFF" aria-label="White pen"></button>
+          <button class="draw-swatch" type="button" data-color="#000000" style="--swatch: #000000" aria-label="Black pen"></button>
+          <span class="draw-palette-divider" aria-hidden="true"></span>
+          <button class="draw-palette-close" id="drawPaletteClose" type="button" aria-label="Stop drawing">×</button>
+        </div>
+
         {{-- Overlays sit outside the rotor so messages stay upright --}}
 
         {{-- Join overlay — shown on page load to collect display name (and
@@ -337,13 +375,20 @@
             </div>
           </div>
         @end
-      </div>
 
-      {{-- Chat sidebar: docked alongside the player on desktop, slide-over on
-           mobile. Driven entirely by Socket.io: each message is broadcast to
-           the room, including the sender, so every client renders through the
-           same DOM path. --}}
-      <aside class="chat-panel" id="chatPanel" aria-label="Room chat">
+        {{-- Chat toggle for fullscreen — the top bar's 💬 sits outside the
+             player, so it vanishes in native fullscreen; this in-player button
+             (shown only while fullscreen) opens the same chat panel. --}}
+        <button class="player-chat-toggle" id="fsChatToggle" type="button" title="Toggle chat" aria-label="Toggle chat">
+          💬<span class="chat-toggle-badge" id="fsChatToggleBadge" hidden>0</span>
+        </button>
+
+        {{-- Chat sidebar — a slide-over panel. Kept INSIDE the player so it
+             still renders when the player is in native fullscreen (only the
+             fullscreened element's subtree is shown). Driven by Socket.io: each
+             message is broadcast to the room, including the sender, so every
+             client renders through the same DOM path. --}}
+        <aside class="chat-panel" id="chatPanel" aria-label="Room chat">
         <header class="chat-header">
           <span class="chat-title">Chat</span>
           <button class="chat-close" id="chatClose" type="button" aria-label="Close chat">×</button>
@@ -363,6 +408,7 @@
           <button class="chat-send" id="chatSend" type="submit" aria-label="Send message">➤</button>
         </form>
       </aside>
+      </div>
     </main>
 
     {{-- Edit room modal --}}
@@ -432,6 +478,7 @@
           <span class="shortcut-key">↓</span><span class="shortcut-desc">Back 60s</span>
           <span class="shortcut-key">F</span><span class="shortcut-desc">Fullscreen</span>
           <span class="shortcut-key">M</span><span class="shortcut-desc">Mic (hold to talk)</span>
+          <span class="shortcut-key">D</span><span class="shortcut-desc">Draw on video</span>
           <span class="shortcut-key">C</span><span class="shortcut-desc">Toggle chat</span>
           <span class="shortcut-key">?</span><span class="shortcut-desc">Show shortcuts</span>
         </div>
@@ -677,6 +724,6 @@
         }, 4000)
       }
     </script>
-    <script src="/js/room.js?v=24"></script>
+    <script src="/js/room.js?v=27"></script>
   </body>
 </html>
