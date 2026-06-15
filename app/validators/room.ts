@@ -19,7 +19,7 @@ import vine from '@vinejs/vine'
 export const createRoomValidator = vine.create({
   name: vine.string().minLength(2).maxLength(80),
   password: vine.string().minLength(4).maxLength(64).nullable().optional(),
-  roomType: vine.enum(['upload', 'download', 'torrent']),
+  roomType: vine.enum(['upload', 'download', 'torrent', 'youtube']),
   videoUrl: vine.string().trim().maxLength(2048).nullable().optional(),
   magnet: vine.string().trim().maxLength(8192).nullable().optional(),
   reactions: vine.string().nullable().optional(),
@@ -28,4 +28,8 @@ export const createRoomValidator = vine.create({
   // Max video height for a server-side YouTube download (e.g. 1080). Ignored by
   // the other source types; the downloader picks the best format <= this height.
   maxHeight: vine.number().min(144).max(4320).nullable().optional(),
+  // Poster image URL of the movie/series this room plays, captured from the
+  // catalogue. Stored as the room's thumbnail; when absent, a random built-in
+  // placeholder is assigned instead.
+  thumbnail: vine.string().trim().url().maxLength(2048).nullable().optional(),
 })

@@ -329,7 +329,8 @@ async function runTorrentRoom(
   password: string | null,
   reactions: string | null,
   category: string | null,
-  imdbId: string | null
+  imdbId: string | null,
+  thumbnail: string | null
 ): Promise<void> {
   const job = torrentJobs.get(jobId)
   if (!job) return
@@ -355,7 +356,8 @@ async function runTorrentRoom(
       // The folder WebTorrent cached the pieces under (storage/torrents/<name>),
       // recorded so the room's files can be deleted by path on teardown.
       torrentDir: torrent.name,
-      thumbnailFilename: '',
+      // A real poster if one was passed; otherwise a random placeholder (model hook).
+      thumbnailFilename: thumbnail ?? '',
       roomType: 'torrent',
       externalUrl: null,
       magnet,
@@ -404,6 +406,7 @@ export function startTorrentRoom(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  thumbnail?: string | null
   deviceId?: string | null
 }): string {
   const magnet = normalizeMagnet(opts.magnet)
@@ -432,7 +435,8 @@ export function startTorrentRoom(opts: {
     opts.password,
     opts.reactions ?? null,
     opts.category ?? null,
-    opts.imdbId ?? null
+    opts.imdbId ?? null,
+    opts.thumbnail ?? null
   )
 
   return jobId
@@ -457,7 +461,8 @@ async function runMagnetDownload(
   password: string | null,
   reactions: string | null,
   category: string | null,
-  imdbId: string | null
+  imdbId: string | null,
+  thumbnail: string | null
 ): Promise<void> {
   const job = torrentJobs.get(jobId)
   if (!job) return
@@ -508,7 +513,8 @@ async function runMagnetDownload(
       name,
       slug,
       videoFilename,
-      thumbnailFilename: '',
+      // A real poster if one was passed; otherwise a random placeholder (model hook).
+      thumbnailFilename: thumbnail ?? '',
       roomType: 'download',
       externalUrl: null,
       magnet: null,
@@ -555,6 +561,7 @@ export function startMagnetDownload(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  thumbnail?: string | null
   deviceId?: string | null
 }): string {
   const magnet = normalizeMagnet(opts.magnet)
@@ -583,7 +590,8 @@ export function startMagnetDownload(opts: {
     opts.password,
     opts.reactions ?? null,
     opts.category ?? null,
-    opts.imdbId ?? null
+    opts.imdbId ?? null,
+    opts.thumbnail ?? null
   )
 
   return jobId

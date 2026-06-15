@@ -1,5 +1,6 @@
 import AppVersion from '#models/app_version'
 import { inspectApk } from '#services/apk_inspector'
+import { io } from '#start/socket'
 import env from '#start/env'
 import app from '@adonisjs/core/services/app'
 import { unlink } from 'node:fs/promises'
@@ -90,6 +91,7 @@ export default class AppVersionsController {
     const fileName = `telecinema-${info.versionName.replace(/[^\w.-]/g, '_')}-${info.versionCode}.apk`
     await apk.move(app.makePath('storage/apks'), { name: fileName, overwrite: true })
 
+    const isMandatory = toBool(request.input('is_mandatory'))
     await AppVersion.create({
       versionName: info.versionName,
       versionCode: info.versionCode,
@@ -97,8 +99,18 @@ export default class AppVersionsController {
       fileName,
       fileSize: apk.size,
       releaseNotes: cleanNotes(request.input('release_notes')),
-      isMandatory: toBool(request.input('is_mandatory')),
+      isMandatory,
       status: 'published',
+    })
+
+    // Nudge every connected app to re-run its /api/app/version check right away,
+    // so the in-app "update available" button/gate appears without waiting for
+    // the next launch. Payload is informational only — the client re-checks over
+    // REST and does the version-vs-installed comparison server-side as before.
+    io?.emit('app_version_published', {
+      versionName: info.versionName,
+      versionCode: info.versionCode,
+      forced: isMandatory,
     })
 
     // Flash is read on the next page load — works for both the XHR client

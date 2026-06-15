@@ -358,6 +358,7 @@ async function createRoom(
   reactions: string | null,
   category: string | null,
   imdbId: string | null,
+  thumbnail: string | null,
   tmpPath: string,
   ext: string
 ): Promise<Room> {
@@ -374,7 +375,9 @@ async function createRoom(
     name,
     slug,
     videoFilename,
-    thumbnailFilename: '',
+    // A real poster if one was passed; otherwise the model assigns a random
+    // placeholder via its beforeCreate hook.
+    thumbnailFilename: thumbnail ?? '',
     roomType: 'download',
     externalUrl: null,
     isUserCreated: true,
@@ -407,7 +410,8 @@ async function runDownload(
   password: string | null,
   reactions: string | null,
   category: string | null,
-  imdbId: string | null
+  imdbId: string | null,
+  thumbnail: string | null
 ): Promise<void> {
   const job = jobs.get(jobId)
   if (!job) return
@@ -460,7 +464,16 @@ async function runDownload(
     await pipeline(stream, counter, createWriteStream(tmpPath))
 
     /** The bytes are on disk — only now does the room come into existence. */
-    const room = await createRoom(name, password, reactions, category, imdbId, tmpPath, ext)
+    const room = await createRoom(
+      name,
+      password,
+      reactions,
+      category,
+      imdbId,
+      thumbnail,
+      tmpPath,
+      ext
+    )
 
     job.status = 'done'
     job.percent = 100
@@ -497,6 +510,7 @@ export function startUrlDownload(opts: {
   reactions?: string | null
   category?: string | null
   imdbId?: string | null
+  thumbnail?: string | null
   deviceId?: string | null
 }): string {
   const url = parseHttpUrl(opts.url)
@@ -526,7 +540,8 @@ export function startUrlDownload(opts: {
     opts.password,
     opts.reactions ?? null,
     opts.category ?? null,
-    opts.imdbId ?? null
+    opts.imdbId ?? null,
+    opts.thumbnail ?? null
   )
 
   return jobId

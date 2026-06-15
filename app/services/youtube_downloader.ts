@@ -392,7 +392,8 @@ async function runYoutubeDownload(
   reactions: string | null,
   category: string | null,
   imdbId: string | null,
-  maxHeight: number | null
+  maxHeight: number | null,
+  thumbnail: string | null
 ): Promise<void> {
   const job = youtubeJobs.get(jobId)
   if (!job) return
@@ -427,7 +428,8 @@ async function runYoutubeDownload(
       name,
       slug,
       videoFilename,
-      thumbnailFilename: '',
+      // A real poster if one was passed; otherwise a random placeholder (model hook).
+      thumbnailFilename: thumbnail ?? '',
       roomType: 'download',
       externalUrl: null,
       isUserCreated: true,
@@ -473,6 +475,7 @@ export function startYoutubeDownload(opts: {
   imdbId?: string | null
   /** Max video height to fetch (e.g. 1080); null = best up to the default. */
   maxHeight?: number | null
+  thumbnail?: string | null
   deviceId?: string | null
 }): string {
   if (!isYoutubeUrl(opts.url)) {
@@ -504,7 +507,8 @@ export function startYoutubeDownload(opts: {
     opts.reactions ?? null,
     opts.category ?? null,
     opts.imdbId ?? null,
-    opts.maxHeight ?? null
+    opts.maxHeight ?? null,
+    opts.thumbnail ?? null
   )
 
   return jobId

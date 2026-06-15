@@ -37,5 +37,20 @@ export default class HttpProvider {
     nodeServer.requestTimeout = 0
 
     logger.info('[http] per-request timeout disabled — large uploads enabled')
+
+    /**
+     * Reclaim disk from any partial-download temp files a previous run left
+     * behind (a stop/crash mid-transfer can't run the job's own cleanup). Safe
+     * at boot: no transfer is running yet, so every temp file is an orphan.
+     */
+    try {
+      const { sweepOrphanTempFiles } = await import('#services/storage_cleanup')
+      const removed = await sweepOrphanTempFiles()
+      if (removed > 0) {
+        logger.info(`[storage] removed ${removed} orphaned download temp file(s)`)
+      }
+    } catch (error) {
+      logger.warn({ err: error }, '[storage] orphan temp-file sweep failed')
+    }
   }
 }

@@ -1,9 +1,11 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
+import { Readable } from 'node:stream'
 import app from '@adonisjs/core/services/app'
 import Room from '#models/room'
 import { ensureRoomTorrent } from '#services/torrent_streamer'
+import { resolveYoutubeStream } from '#services/youtube_stream'
 import type { HttpContext } from '@adonisjs/core/http'
 
 /**
@@ -182,5 +184,75 @@ export default class VideosController {
     response.header('Content-Range', `bytes ${start}-${end}/${fileSize}`)
     response.header('Content-Length', String(end - start + 1))
     return response.stream(file.createReadStream({ start, end }))
+  }
+
+  /**
+   * GET /youtube/:slug — proxies a `youtube` room's stream. The room stores the
+   * YouTube watch URL; we resolve it to a direct googlevideo URL (yt-dlp -g,
+   * cached) and pipe the bytes through, forwarding the client's `Range` header
+   * so the player can seek. googlevideo URLs are short-lived and locked to this
+   * server's IP, so they are never exposed to clients — only proxied here. A
+   * rejected upstream request (expired URL) triggers one re-resolve + retry.
+   */
+  async streamYoutube({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', String(params.slug))
+    if (!room || room.roomType !== 'youtube' || !room.externalUrl) {
+      return response.status(404).send('YouTube room not found')
+    }
+    const watchUrl = room.externalUrl
+    const range = request.header('range')
+
+    const fetchUpstream = (direct: string, signal: AbortSignal) =>
+      fetch(direct, {
+        // googlevideo honours Range; forwarding it lets the player seek. A
+        // browser-like UA avoids the odd format that 403s a bare client.
+        headers: {
+          ...(range ? { Range: range } : {}),
+          'User-Agent': 'Mozilla/5.0',
+        },
+        signal,
+      })
+
+    // Abort the upstream fetch if the client goes away mid-stream.
+    const controller = new AbortController()
+    request.request.on('close', () => controller.abort())
+
+    let direct: string
+    try {
+      direct = await resolveYoutubeStream(room.slug, watchUrl)
+    } catch {
+      return response.status(502).send('Could not resolve the YouTube stream')
+    }
+
+    let upstream: Response
+    try {
+      upstream = await fetchUpstream(direct, controller.signal)
+      // 403/404/410 ⇒ the cached URL expired or its IP-lock rotated: re-resolve once.
+      if (upstream.status === 403 || upstream.status === 404 || upstream.status === 410) {
+        direct = await resolveYoutubeStream(room.slug, watchUrl, true)
+        upstream = await fetchUpstream(direct, controller.signal)
+      }
+    } catch {
+      return response.status(502).send('YouTube stream is unavailable')
+    }
+
+    if (!upstream.ok && upstream.status !== 206) {
+      return response.status(502).send('YouTube stream is unavailable')
+    }
+    if (!upstream.body) {
+      return response.status(502).send('YouTube stream returned no data')
+    }
+
+    // Relay the upstream's own status (200/206) and range headers verbatim.
+    response.status(upstream.status)
+    response.header('Content-Type', upstream.headers.get('content-type') ?? 'video/mp4')
+    response.header('Accept-Ranges', 'bytes')
+    response.header('Cache-Control', 'no-store')
+    const contentLength = upstream.headers.get('content-length')
+    if (contentLength) response.header('Content-Length', contentLength)
+    const contentRange = upstream.headers.get('content-range')
+    if (contentRange) response.header('Content-Range', contentRange)
+
+    return response.stream(Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]))
   }
 }

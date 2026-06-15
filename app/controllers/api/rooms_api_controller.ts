@@ -24,6 +24,7 @@ import {
   cancelYoutubeJob,
   isYoutubeUrl,
 } from '#services/youtube_downloader'
+import { resolveYoutubeStream, dropYoutubeStream } from '#services/youtube_stream'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -148,8 +149,18 @@ export default class RoomsApiController {
    *   - `upload`   → multipart video file; returns the created room.
    */
   async store({ request, response }: HttpContext) {
-    const { name, password, roomType, videoUrl, magnet, reactions, category, imdbId, maxHeight } =
-      await request.validateUsing(createRoomValidator)
+    const {
+      name,
+      password,
+      roomType,
+      videoUrl,
+      magnet,
+      reactions,
+      category,
+      imdbId,
+      maxHeight,
+      thumbnail,
+    } = await request.validateUsing(createRoomValidator)
 
     // Stable per-install id sent by the mobile client, so a long-running
     // download/torrent it kicks off can be listed and cancelled later — even
@@ -158,6 +169,37 @@ export default class RoomsApiController {
 
     const fail = (message: string, status = 422) =>
       response.status(status).json({ success: false, message })
+
+    // ---- youtube stream (no download) ----------------------------------
+    // A pasted YouTube link is played by streaming: the watch URL is stored and
+    // resolved on demand to a direct googlevideo stream, proxied over
+    // `/youtube/:slug`. Created synchronously (nothing to download), but we
+    // resolve once up front to validate the link and warm the cache; a link
+    // that can't be resolved never leaves a dead room behind.
+    if (roomType === 'youtube') {
+      if (!videoUrl || !isYoutubeUrl(videoUrl)) return fail('Please paste a YouTube link.')
+      const slug = await this.uniqueSlug(name)
+      const room = await Room.create({
+        name,
+        slug,
+        videoFilename: '',
+        externalUrl: videoUrl,
+        thumbnailFilename: thumbnail ?? '',
+        roomType: 'youtube',
+        isUserCreated: true,
+        passwordHash: password ? await hash.make(password) : null,
+        reactions: reactions ?? null,
+        category: category ?? null,
+        imdbId: imdbId ?? null,
+      })
+      try {
+        await resolveYoutubeStream(slug, videoUrl)
+      } catch {
+        await room.delete()
+        return fail('That YouTube link could not be used.')
+      }
+      return response.json({ success: true, data: { room: this.serialize(room) } })
+    }
 
     // ---- download from a link OR a magnet ------------------------------
     // The server fetches the video to disk either way; a magnet is downloaded
@@ -172,6 +214,7 @@ export default class RoomsApiController {
             reactions: reactions ?? null,
             category: category ?? null,
             imdbId: imdbId ?? null,
+            thumbnail: thumbnail ?? null,
             deviceId,
           })
           return response.json({ success: true, data: { jobId } })
@@ -192,6 +235,7 @@ export default class RoomsApiController {
             category: category ?? null,
             imdbId: imdbId ?? null,
             maxHeight: maxHeight ?? null,
+            thumbnail: thumbnail ?? null,
             deviceId,
           })
           return response.json({ success: true, data: { jobId } })
@@ -207,6 +251,7 @@ export default class RoomsApiController {
           reactions: reactions ?? null,
           category: category ?? null,
           imdbId: imdbId ?? null,
+          thumbnail: thumbnail ?? null,
           deviceId,
         })
         return response.json({ success: true, data: { jobId } })
@@ -226,6 +271,7 @@ export default class RoomsApiController {
           reactions: reactions ?? null,
           category: category ?? null,
           imdbId: imdbId ?? null,
+          thumbnail: thumbnail ?? null,
           deviceId,
         })
         return response.json({ success: true, data: { jobId } })
@@ -253,7 +299,9 @@ export default class RoomsApiController {
       name,
       slug,
       videoFilename,
-      thumbnailFilename: '',
+      // A real poster if one was passed; otherwise the model's beforeCreate hook
+      // assigns a random placeholder.
+      thumbnailFilename: thumbnail ?? '',
       roomType: 'upload',
       isUserCreated: true,
       passwordHash: password ? await hash.make(password) : null,
@@ -390,7 +438,10 @@ export default class RoomsApiController {
       return response.status(409).json({ success: false, message: 'room_not_empty' })
     }
 
-    if (room.roomType === 'torrent') {
+    if (room.roomType === 'youtube') {
+      /** Just an in-memory resolved-URL cache to forget — no files on disk. */
+      dropYoutubeStream(room.slug)
+    } else if (room.roomType === 'torrent') {
       /** Tear down the swarm and delete its cached pieces under storage/torrents. */
       await removeRoomTorrent(room)
     } else if (room.videoFilename) {

@@ -821,6 +821,57 @@ function registerHandlers(server: Server, socket: Socket) {
   })
 
   /**
+   * Ephemeral collaborative drawing over the video. The server performs no
+   * persistence — it forwards each stroke segment to everyone else in the room
+   * so the line appears as it's drawn and then fades on their side. Points are
+   * normalized (0..1) against the sender's player box; a stroke is identified by
+   * `strokeId` so a segment appends to the right line, and `done` marks its end.
+   * Tagged with the sender's socket id + name (mirrors the `reaction` relay).
+   */
+  socket.on(
+    'draw',
+    (payload: { strokeId?: unknown; color?: unknown; points?: unknown; done?: unknown }) => {
+      const slug = socket.data.roomSlug
+      if (typeof slug !== 'string' || slug.length === 0) return
+
+      const strokeId = typeof payload?.strokeId === 'string' ? payload.strokeId.slice(0, 64) : ''
+      if (!strokeId) return
+      const color = typeof payload?.color === 'string' ? payload.color.slice(0, 16) : '#ffffff'
+      const done = payload?.done === true
+
+      /* Accept a small batch of [x, y] pairs; clamp to the unit square and cap
+         the count so a malicious client can't flood the room. */
+      const raw = Array.isArray(payload?.points) ? payload.points : []
+      const points: [number, number][] = []
+      for (const p of raw.slice(0, 64)) {
+        if (!Array.isArray(p) || p.length < 2) continue
+        const x = Number(p[0])
+        const y = Number(p[1])
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+        points.push([clamp(x, 0, 1), clamp(y, 0, 1)])
+      }
+      if (points.length === 0 && !done) return
+
+      const name = typeof socket.data.displayName === 'string' ? socket.data.displayName : 'Anonymous'
+      socket.to(slug).emit('draw', { id: socket.id, name, strokeId, color, points, done })
+    }
+  )
+
+  /**
+   * "X is writing…" indicator. Relayed to everyone else in the room; each client
+   * shows the name briefly and auto-expires it, so a lost `typing:false` can
+   * never leave the bubble stuck. Cleared explicitly on send, leave and
+   * disconnect below.
+   */
+  socket.on('typing', (payload: { typing?: unknown }) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+    const typing = payload?.typing === true
+    const name = typeof socket.data.displayName === 'string' ? socket.data.displayName : 'Anonymous'
+    socket.to(slug).emit('typing', { id: socket.id, name, typing })
+  })
+
+  /**
    * Explicit room exit. The web client leaves a room by unloading the page
    * (which fires `disconnecting`), but a native client keeps one long-lived
    * socket across screens — so it emits `leave_room` to drop its viewer slot
@@ -833,6 +884,8 @@ function registerHandlers(server: Server, socket: Socket) {
 
     /* Close any in-flight voice burst for listeners. */
     socket.to(slug).emit('voice_end', { id: socket.id })
+    /* Drop any lingering "is writing…" bubble this socket left behind. */
+    socket.to(slug).emit('typing', { id: socket.id, name: '', typing: false })
 
     removeRoomUser(slug, socket.id)
     clearBuffering(slug, socket.id)
@@ -866,6 +919,8 @@ function registerHandlers(server: Server, socket: Socket) {
      * listener can tear the playback pipeline down cleanly.
      */
     socket.to(slug).emit('voice_end', { id: socket.id })
+    /* Clear any "is writing…" bubble so a disconnect mid-typing doesn't stick. */
+    socket.to(slug).emit('typing', { id: socket.id, name: '', typing: false })
 
     /* Remove from presence tracking and broadcast updated list. */
     removeRoomUser(slug, socket.id)

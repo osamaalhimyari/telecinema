@@ -84,10 +84,12 @@ router.post('/room/:slug/delete', [RoomsController, 'destroy']).as('rooms.destro
 
 /**
  * Video streaming endpoints with HTTP range-request support — one for files on
- * disk (upload/download rooms), one that streams a torrent room's swarm.
+ * disk (upload/download rooms), one that streams a torrent room's swarm, and
+ * one that proxies a youtube room's resolved googlevideo stream.
  */
 router.get('/video/:filename', [VideosController, 'stream']).as('videos.stream')
 router.get('/stream/:slug', [VideosController, 'streamTorrent']).as('videos.streamTorrent')
+router.get('/youtube/:slug', [VideosController, 'streamYoutube']).as('videos.streamYoutube')
 
 /**
  * Subtitle endpoints — upload an .srt/.vtt for an external room, and serve

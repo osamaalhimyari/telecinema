@@ -1,5 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, computed } from '@adonisjs/lucid/orm'
+import { BaseModel, column, computed, beforeCreate } from '@adonisjs/lucid/orm'
+
+/**
+ * The built-in placeholder artwork under `public/thumbnails/`. A room with no
+ * real poster gets one of these at random (see {@link Room.assignDefaultThumbnail}).
+ */
+const PLACEHOLDER_THUMBNAILS = ['city.svg', 'nature.svg', 'ocean.svg', 'space.svg']
 
 /**
  * Room model represents a single watch-party room. Each room is bound to
@@ -7,6 +13,20 @@ import { BaseModel, column, computed } from '@adonisjs/lucid/orm'
  * for the public URL (/room/:slug) and as the Socket.io room identifier.
  */
 export default class Room extends BaseModel {
+  /**
+   * When a room is created without an explicit thumbnail (the common case for
+   * user-made rooms that carry no movie/series poster), give it one of the four
+   * built-in SVG placeholders at random — so every room shows artwork instead of
+   * a blank tile. A real poster URL passed at creation is left untouched.
+   */
+  @beforeCreate()
+  static assignDefaultThumbnail(room: Room) {
+    if (!room.thumbnailFilename) {
+      const i = Math.floor(Math.random() * PLACEHOLDER_THUMBNAILS.length)
+      room.thumbnailFilename = PLACEHOLDER_THUMBNAILS[i]
+    }
+  }
+
   @column({ isPrimary: true })
   declare id: number
 
@@ -23,22 +43,23 @@ export default class Room extends BaseModel {
   declare thumbnailFilename: string
 
   /**
-   * Source of the room's video. Rooms are created as one of three types:
+   * Source of the room's video. Rooms are created as one of these types:
    * `upload` and `download` both end up as a file under `storage/videos/`,
-   * and `torrent` streams a file out of a BitTorrent swarm (via WebTorrent)
-   * served over `/stream/:slug`, downloading pieces on demand.
+   * `torrent` streams a file out of a BitTorrent swarm (via WebTorrent) served
+   * over `/stream/:slug`, and `youtube` streams a YouTube watch URL resolved to
+   * a direct googlevideo stream and proxied over `/youtube/:slug`.
    *
    * `external` (an iframe embed URL) is a **legacy** type: existing rows still
    * render, but it can no longer be created — the create form offers only
-   * upload, download and torrent.
+   * upload, download, torrent and youtube.
    */
   @column()
-  declare roomType: 'upload' | 'download' | 'external' | 'torrent'
+  declare roomType: 'upload' | 'download' | 'external' | 'torrent' | 'youtube'
 
   /**
-   * Embed URL for legacy `external` rooms — the third-party player iframe
-   * shown in place of our own `<video>` element. Always null for the
-   * upload/download/torrent types that can be created today.
+   * For legacy `external` rooms, the third-party player iframe URL; for
+   * `youtube` rooms, the YouTube **watch** URL the `/youtube/:slug` proxy
+   * resolves to a direct stream. Null for the file/torrent types.
    */
   @column()
   declare externalUrl: string | null
