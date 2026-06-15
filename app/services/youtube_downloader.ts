@@ -398,7 +398,12 @@ async function runYoutubeDownload(
   const job = youtubeJobs.get(jobId)
   if (!job) return
 
-  const outTemplate = app.makePath('storage/videos', `.yt-${jobId}.%(ext)s`)
+  // NB: the yt-dlp output token `%(ext)s` must NOT go through `app.makePath` —
+  // makePath round-trips the path through a file URL and `decodeURIComponent`,
+  // and the literal `%(e` is invalid percent-encoding, which throws `URIError:
+  // URI malformed` and aborts the download. Resolve the directory with makePath,
+  // then join the template filename onto it.
+  const outTemplate = join(app.makePath('storage/videos'), `.yt-${jobId}.%(ext)s`)
   // Where the finished video is renamed to. Recorded so a failure *after* the
   // rename (e.g. Room.create throwing on a slug-unique race or a DB hiccup) can
   // delete it — cleanupTemp only knows the `.yt-<jobId>.*` temp names, not the
