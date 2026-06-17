@@ -19,12 +19,14 @@ import {
 } from '#services/torrent_streamer'
 import {
   startYoutubeDownload,
+  startYoutubeMergeDownload,
   getYoutubeJob,
   listYoutubeJobs,
   cancelYoutubeJob,
   isYoutubeUrl,
 } from '#services/youtube_downloader'
 import { resolveYoutubeStream, dropYoutubeStream } from '#services/youtube_stream'
+import { isTelegramUrl, resolveTelegramVideoUrl } from '#services/telegram_resolver'
 import app from '@adonisjs/core/services/app'
 import hash from '@adonisjs/core/services/hash'
 import type { HttpContext } from '@adonisjs/core/http'
@@ -154,6 +156,7 @@ export default class RoomsApiController {
       password,
       roomType,
       videoUrl,
+      audioUrl,
       magnet,
       reactions,
       category,
@@ -223,6 +226,55 @@ export default class RoomsApiController {
         }
       }
       if (!videoUrl) return fail('Please paste a link or a magnet.')
+      // A YouTube room resolved ON-DEVICE: the app already extracted the direct
+      // googlevideo video + audio CDN URLs (the server's IP is bot-blocked by
+      // YouTube's API, so it can't run yt-dlp). The server just downloads both
+      // and muxes them — no yt-dlp. Distinguished by the presence of `audioUrl`.
+      if (audioUrl) {
+        try {
+          const jobId = startYoutubeMergeDownload({
+            name,
+            password: password ?? null,
+            videoUrl,
+            audioUrl,
+            reactions: reactions ?? null,
+            category: category ?? null,
+            imdbId: imdbId ?? null,
+            thumbnail: thumbnail ?? null,
+            deviceId,
+          })
+          return response.json({ success: true, data: { jobId } })
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'That YouTube link could not be used.')
+        }
+      }
+      // A public Telegram post link is resolved to the direct CDN video URL it
+      // embeds, then downloaded like any other link (Telegram's CDN, unlike
+      // YouTube, does not bot-block datacenter IPs). Resolved up front so a bad
+      // link (private channel, document-only post) fails the request cleanly.
+      if (isTelegramUrl(videoUrl)) {
+        let directUrl: string
+        try {
+          directUrl = await resolveTelegramVideoUrl(videoUrl)
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'That Telegram link could not be used.')
+        }
+        try {
+          const jobId = startUrlDownload({
+            name,
+            password: password ?? null,
+            url: directUrl,
+            reactions: reactions ?? null,
+            category: category ?? null,
+            imdbId: imdbId ?? null,
+            thumbnail: thumbnail ?? null,
+            deviceId,
+          })
+          return response.json({ success: true, data: { jobId } })
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : 'That Telegram link could not be used.')
+        }
+      }
       // A YouTube link is not a plain file the URL downloader can stream, so it
       // is handed to yt-dlp (which fetches it into a normal `download` room).
       if (isYoutubeUrl(videoUrl)) {

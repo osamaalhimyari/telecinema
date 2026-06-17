@@ -27,7 +27,12 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { mkdir, rename, readdir, unlink } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { createWriteStream, existsSync } from 'node:fs'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import http from 'node:http'
+import https from 'node:https'
+import type { IncomingMessage } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -134,8 +139,14 @@ export interface YoutubeJob {
   createdAt: number
   /** Set true by `cancelYoutubeJob`; kills the child and aborts room creation. */
   canceled: boolean
-  /** The running yt-dlp process, so a cancel can terminate it. */
+  /** The running yt-dlp / ffmpeg process, so a cancel can terminate it. */
   child: ChildProcess | null
+  /**
+   * Aborts in-flight HTTP fetches for the on-device-resolved merge path
+   * (`startYoutubeMergeDownload`); null for the yt-dlp path, which cancels by
+   * killing [child] instead.
+   */
+  controller: AbortController | null
 }
 
 /** A YouTube job's public shape for the operations list (mirrors the others). */
@@ -195,6 +206,12 @@ export function cancelYoutubeJob(jobId: string, deviceId: string | null): boolea
     job.child?.kill()
   } catch {
     /* already exited */
+  }
+  // Merge-path jobs cancel by aborting their HTTP fetches too.
+  try {
+    job.controller?.abort()
+  } catch {
+    /* nothing in flight */
   }
   return true
 }
@@ -284,6 +301,15 @@ function runYtDlp(
       '--no-playlist',
       '--no-warnings',
       '--no-color',
+      // Use YouTube's tv/android/ios API clients instead of the default `web`
+      // client. The web client is the one that trips the "Sign in to confirm
+      // you're not a bot" challenge on datacenter IPs; these mobile/TV clients
+      // authenticate differently and usually fetch without any cookies. Which
+      // clients slip past changes over time as YouTube tightens things, so the
+      // list is overridable per-host via `YT_DLP_PLAYER_CLIENT` (comma-separated)
+      // without a rebuild.
+      '--extractor-args',
+      `youtube:player_client=${process.env.YT_DLP_PLAYER_CLIENT || 'tv,android,ios'}`,
       '-f',
       buildFormat(maxHeight),
       '--merge-output-format',
@@ -501,6 +527,7 @@ export function startYoutubeDownload(opts: {
     createdAt: Date.now(),
     canceled: false,
     child: null,
+    controller: null,
   })
 
   /** Detached on purpose: progress is observed via `getYoutubeJob`. */
@@ -513,6 +540,346 @@ export function startYoutubeDownload(opts: {
     opts.category ?? null,
     opts.imdbId ?? null,
     opts.maxHeight ?? null,
+    opts.thumbnail ?? null
+  )
+
+  return jobId
+}
+
+/*
+|--------------------------------------------------------------------------
+| On-device-resolved merge path
+|--------------------------------------------------------------------------
+|
+| YouTube's API bot-blocks the server's datacenter IP, so yt-dlp (above) fails
+| on the deployed host. Instead the Flutter app resolves the video on the
+| *device's* network and sends the two direct googlevideo CDN URLs it got — a
+| video-only stream (for 1080p+, which YouTube never serves combined) and an
+| audio stream. Here the server simply downloads both (the CDN, unlike the API,
+| does not bot-block datacenter IPs) and muxes them with ffmpeg into one mp4,
+| then creates the same `roomType: 'download'` file room.
+|
+| It reuses this module's job map, getters, list and cancel, so the existing
+| `/api/rooms/download/:jobId`, `/api/operations` and cancel seams serve it with
+| no controller changes. Only fetching googlevideo hosts is allowed, which (like
+| `isYoutubeUrl` for yt-dlp) doubles as the SSRF guard on the client-supplied URL.
+|
+*/
+
+/** Hard ceiling on the combined downloaded bytes, matching the URL downloader. */
+const MAX_MERGE_BYTES = 15 * 1024 ** 3
+
+/** Most hops a googlevideo URL may redirect through before we give up. */
+const MAX_MERGE_REDIRECTS = 5
+
+/**
+ * True only for https(s) URLs on the googlevideo CDN. The merge path fetches
+ * client-supplied URLs, so this is the SSRF guard: the server will never be
+ * tricked into fetching an internal/arbitrary address — only YouTube's CDN.
+ */
+function isGoogleVideoUrl(raw: string): boolean {
+  let url: URL
+  try {
+    url = new URL(raw.trim())
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  const host = url.hostname.toLowerCase()
+  return host === 'googlevideo.com' || host.endsWith('.googlevideo.com')
+}
+
+/**
+ * Opens a googlevideo download stream, following redirects ourselves and
+ * refusing any hop that leaves the googlevideo CDN. Honors [signal] so a user
+ * cancel aborts the in-flight request.
+ */
+async function openGoogleVideoStream(raw: string, signal: AbortSignal): Promise<IncomingMessage> {
+  let current = raw
+  for (let hop = 0; hop <= MAX_MERGE_REDIRECTS; hop++) {
+    if (!isGoogleVideoUrl(current)) {
+      throw new Error('Refusing to fetch a non-YouTube stream URL.')
+    }
+    const url = new URL(current)
+    const res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const lib = url.protocol === 'https:' ? https : http
+      const req = lib.get(
+        url,
+        { headers: { 'user-agent': 'WatchParty/1.0 (+youtube stream)' }, signal },
+        resolve
+      )
+      req.on('error', reject)
+    })
+
+    const status = res.statusCode ?? 0
+    if (status >= 300 && status < 400 && res.headers.location) {
+      res.resume() // discard the body so the socket frees up
+      current = new URL(res.headers.location, url).toString()
+      continue
+    }
+    if (status < 200 || status >= 300) {
+      res.resume()
+      throw new Error(`The video stream could not be reached (HTTP ${status}).`)
+    }
+    return res
+  }
+  throw new Error('That stream redirects too many times.')
+}
+
+/**
+ * Streams one googlevideo URL to [dest], tallying bytes onto the job (with the
+ * shared size cap) and updating its percent. Adds the stream's Content-Length to
+ * the job total so the two sequential downloads drive one progress bar.
+ */
+async function downloadStreamToFile(
+  job: YoutubeJob,
+  url: string,
+  dest: string,
+  signal: AbortSignal
+): Promise<void> {
+  const stream = await openGoogleVideoStream(url, signal)
+
+  const len = Number.parseInt(stream.headers['content-length'] ?? '', 10)
+  if (Number.isFinite(len)) {
+    if (len > MAX_MERGE_BYTES) {
+      stream.resume()
+      throw new Error('That video is larger than the 15 GB limit.')
+    }
+    job.totalBytes = (job.totalBytes ?? 0) + len
+  }
+
+  const counter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      job.bytesDownloaded += chunk.length
+      if (job.bytesDownloaded > MAX_MERGE_BYTES) {
+        callback(new Error('That video is larger than the 15 GB limit.'))
+        return
+      }
+      // Capped at 95 while downloading; the mux + room creation fill the rest.
+      job.percent = job.totalBytes
+        ? Math.min(95, Math.floor((job.bytesDownloaded / job.totalBytes) * 100))
+        : null
+      job.updatedAt = Date.now()
+      callback(null, chunk)
+    },
+  })
+
+  await pipeline(stream, counter, createWriteStream(dest))
+}
+
+/**
+ * Muxes the downloaded video + audio into [outPath] with ffmpeg: the video is
+ * copied losslessly (the app always picks an mp4/avc1 stream) and the audio is
+ * re-encoded to aac, so any audio container (m4a or webm/opus) lands in a clean,
+ * app-compatible mp4. Stores the child on the job so a cancel can kill it.
+ */
+function mergeVideoAudio(
+  job: YoutubeJob,
+  videoPath: string,
+  audioPath: string,
+  outPath: string
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const ffmpegBin = resolveFfmpegBin()
+    if (!ffmpegBin) {
+      reject(new Error('ffmpeg is not available on the server.'))
+      return
+    }
+    const args = [
+      '-y',
+      '-i',
+      videoPath,
+      '-i',
+      audioPath,
+      '-map',
+      '0:v:0',
+      '-map',
+      '1:a:0',
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-movflags',
+      '+faststart',
+      outPath,
+    ]
+    const child = spawn(ffmpegBin, args, { windowsHide: true })
+    job.child = child
+
+    let stderrTail = ''
+    child.stderr.on('data', (buf: Buffer) => {
+      stderrTail = (stderrTail + buf.toString()).slice(-2000)
+    })
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      job.child = null
+      reject(err.code === 'ENOENT' ? new Error('ffmpeg is not available on the server.') : err)
+    })
+    child.on('close', (code) => {
+      job.child = null
+      if (job.canceled) {
+        reject(new Error('operation_canceled'))
+        return
+      }
+      if (code === 0) {
+        resolve()
+        return
+      }
+      const last = stderrTail
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .pop()
+      reject(new Error(last || 'The video and audio could not be merged.'))
+    })
+  })
+}
+
+/** Deletes any temp artefacts the merge left behind for [jobId]. */
+async function cleanupMergeTemp(jobId: string): Promise<void> {
+  const dir = app.makePath('storage/videos')
+  const prefix = `.ytm-${jobId}.`
+  try {
+    const entries = await readdir(dir)
+    await Promise.all(
+      entries.filter((e) => e.startsWith(prefix)).map((e) => unlink(join(dir, e)).catch(() => {}))
+    )
+  } catch {
+    /* nothing to clean */
+  }
+}
+
+/**
+ * Runs one merge job to completion: download the video stream, then the audio
+ * stream, mux them, rename into place and create the room. Never throws — every
+ * failure is recorded on the job, mirroring `runYoutubeDownload`.
+ */
+async function runYoutubeMerge(
+  jobId: string,
+  videoUrl: string,
+  audioUrl: string,
+  name: string,
+  password: string | null,
+  reactions: string | null,
+  category: string | null,
+  imdbId: string | null,
+  thumbnail: string | null
+): Promise<void> {
+  const job = youtubeJobs.get(jobId)
+  if (!job || !job.controller) return
+  const signal = job.controller.signal
+
+  const dir = app.makePath('storage/videos')
+  const videoTmp = join(dir, `.ytm-${jobId}.v`)
+  const audioTmp = join(dir, `.ytm-${jobId}.a`)
+  const mergedTmp = join(dir, `.ytm-${jobId}.merged.mp4`)
+  // Set once the muxed file is renamed into place, so a failure *after* that
+  // (e.g. Room.create throwing) can delete it — the temp cleanup only knows the
+  // `.ytm-<jobId>.*` names, not the final `<slug>.mp4`.
+  let finalPath: string | null = null
+
+  try {
+    await mkdir(dir, { recursive: true })
+
+    await downloadStreamToFile(job, videoUrl, videoTmp, signal)
+    if (job.canceled) throw new Error('operation_canceled')
+    await downloadStreamToFile(job, audioUrl, audioTmp, signal)
+    if (job.canceled) throw new Error('operation_canceled')
+
+    job.percent = 96
+    job.updatedAt = Date.now()
+
+    await mergeVideoAudio(job, videoTmp, audioTmp, mergedTmp)
+    if (job.canceled) throw new Error('operation_canceled')
+
+    const slug = await uniqueSlug(name)
+    if (job.canceled) throw new Error('operation_canceled')
+
+    const videoFilename = `${slug}.mp4`
+    finalPath = join(dir, videoFilename)
+    await rename(mergedTmp, finalPath)
+
+    await Room.create({
+      name,
+      slug,
+      videoFilename,
+      thumbnailFilename: thumbnail ?? '',
+      roomType: 'download',
+      externalUrl: null,
+      isUserCreated: true,
+      passwordHash: password ? await hash.make(password) : null,
+      reactions: reactions ?? null,
+      category: category ?? null,
+      imdbId: imdbId ?? null,
+    })
+
+    job.status = 'done'
+    job.slug = slug
+    job.percent = 100
+    job.updatedAt = Date.now()
+  } catch (err) {
+    if (finalPath) await unlink(finalPath).catch(() => {})
+    job.status = 'error'
+    job.error = job.canceled
+      ? 'operation_canceled'
+      : err instanceof Error
+        ? err.message
+        : 'The YouTube video could not be downloaded.'
+    job.updatedAt = Date.now()
+  }
+
+  // Remove the `.v` / `.a` (and any leftover merged) temps in every case.
+  await cleanupMergeTemp(jobId)
+  scheduleEviction(jobId)
+}
+
+/**
+ * Starts a room from on-device-resolved YouTube `videoUrl` + `audioUrl` and
+ * returns the id the client polls. Throws synchronously when either URL is not a
+ * googlevideo link, so the caller can answer the request immediately; every
+ * later failure surfaces on the job.
+ */
+export function startYoutubeMergeDownload(opts: {
+  name: string
+  password: string | null
+  videoUrl: string
+  audioUrl: string
+  reactions?: string | null
+  category?: string | null
+  imdbId?: string | null
+  thumbnail?: string | null
+  deviceId?: string | null
+}): string {
+  if (!isGoogleVideoUrl(opts.videoUrl) || !isGoogleVideoUrl(opts.audioUrl)) {
+    throw new Error('Those do not look like YouTube stream links.')
+  }
+
+  const jobId = randomUUID()
+  youtubeJobs.set(jobId, {
+    status: 'downloading',
+    percent: null,
+    bytesDownloaded: 0,
+    totalBytes: null,
+    error: null,
+    slug: null,
+    updatedAt: Date.now(),
+    deviceId: opts.deviceId ?? null,
+    name: opts.name,
+    createdAt: Date.now(),
+    canceled: false,
+    child: null,
+    controller: new AbortController(),
+  })
+
+  /** Detached on purpose: progress is observed via `getYoutubeJob`. */
+  void runYoutubeMerge(
+    jobId,
+    opts.videoUrl.trim(),
+    opts.audioUrl.trim(),
+    opts.name,
+    opts.password,
+    opts.reactions ?? null,
+    opts.category ?? null,
+    opts.imdbId ?? null,
     opts.thumbnail ?? null
   )
 
