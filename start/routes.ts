@@ -134,6 +134,7 @@ router
     router
       .post('/rooms/:slug/subtitle', [RoomsApiController, 'uploadSubtitle'])
       .as('api.rooms.subtitle')
+    router.post('/rooms/:slug/voice', [RoomsApiController, 'uploadVoice']).as('api.rooms.voice')
 
     // Account-less global favorites — saved movies/series from the catalogue.
     router.get('/favorites', [FavoritesApiController, 'index']).as('api.favorites.index')

@@ -1,5 +1,6 @@
-import { unlink, readFile, writeFile } from 'node:fs/promises'
+import { unlink, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
 import { getViewerCount, dropRoom, io } from '#start/socket'
@@ -34,6 +35,10 @@ import type { HttpContext } from '@adonisjs/core/http'
 /** Accepted extensions for subtitle uploads. */
 const SUBTITLE_EXTENSIONS = ['srt', 'vtt']
 const MAX_SUBTITLE_SIZE = '2mb'
+
+/** Accepted extensions + size cap for chat voice-message uploads. */
+const VOICE_EXTENSIONS = ['m4a', 'aac', 'mp3', 'ogg', 'webm']
+const MAX_VOICE_SIZE = '10mb'
 
 /**
  * Re-encodes a subtitle file's bytes to UTF-8 so non-Latin text (notably
@@ -577,6 +582,42 @@ export default class RoomsApiController {
       weight: room.subtitleWeight ?? 500,
       size: room.subtitleSize ?? 28,
     })
+
+    return response.json({ success: true, data: { filename } })
+  }
+
+  /**
+   * POST /api/rooms/:slug/voice — upload a chat voice-message clip. Stored under
+   * `public/voice/` so it is served statically at `/voice/:filename`; the client
+   * then sends a `chat` socket event carrying the returned filename + duration,
+   * so the clip rides the normal chat pipeline (history, broadcast, reconcile).
+   * The room only needs to exist — anyone in it can send a voice note.
+   */
+  async uploadVoice({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ success: false, message: 'room_not_found' })
+    }
+
+    const clip = request.file('voice', { size: MAX_VOICE_SIZE, extnames: VOICE_EXTENSIONS })
+    if (!clip) return response.status(400).json({ success: false, message: 'no_voice_file' })
+    if (!clip.isValid) {
+      return response
+        .status(400)
+        .json({ success: false, message: clip.errors[0]?.message ?? 'voice_rejected' })
+    }
+
+    const ext = (clip.extname || 'm4a').toLowerCase()
+    // Random name (never the slug) so concurrent notes in a room never collide
+    // and an old clip is never overwritten while someone is still playing it.
+    const filename = `${randomUUID()}.${ext}`
+    const dir = app.makePath('public/voice')
+    try {
+      await mkdir(dir, { recursive: true })
+      await clip.move(dir, { name: filename, overwrite: true })
+    } catch {
+      return response.status(500).json({ success: false, message: 'voice_save_failed' })
+    }
 
     return response.json({ success: true, data: { filename } })
   }

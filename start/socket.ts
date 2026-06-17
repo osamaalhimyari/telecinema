@@ -55,6 +55,12 @@ interface ChatMessage {
    * if a flaky client re-sends the same message after a reconnect.
    */
   clientId?: string
+  /**
+   * Voice message: filename of the uploaded clip (served from `/voice/:file`),
+   * with its length in [durationMs]. Present instead of (or alongside) [text].
+   */
+  audioUrl?: string
+  durationMs?: number
 }
 
 const CHAT_HISTORY_LIMIT = 80
@@ -78,6 +84,8 @@ interface ControlPayload {
 interface ChatPayload {
   text?: unknown
   clientId?: unknown
+  audioUrl?: unknown
+  durationMs?: unknown
 }
 
 interface BufferStatePayload {
@@ -603,7 +611,19 @@ function registerHandlers(server: Server, socket: Socket) {
 
     const raw = typeof payload?.text === 'string' ? payload.text : ''
     const text = raw.replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LENGTH)
-    if (!text) return
+
+    // Voice message: an uploaded clip filename (the upload endpoint only ever
+    // produces this exact shape, which also bounds what we echo to the room) and
+    // its length. A message must carry text OR audio.
+    const audioUrl =
+      typeof payload?.audioUrl === 'string' && /^[\w.-]+\.(m4a|aac|mp3|ogg|webm)$/i.test(payload.audioUrl)
+        ? payload.audioUrl
+        : undefined
+    const durationMs =
+      typeof payload?.durationMs === 'number' && Number.isFinite(payload.durationMs) && payload.durationMs > 0
+        ? Math.min(Math.round(payload.durationMs), 10 * 60 * 1000)
+        : undefined
+    if (!text && !audioUrl) return
 
     const clientId =
       typeof payload?.clientId === 'string' && payload.clientId.length > 0
@@ -641,6 +661,8 @@ function registerHandlers(server: Server, socket: Socket) {
       text,
       ts: Date.now(),
       clientId,
+      ...(audioUrl ? { audioUrl } : {}),
+      ...(durationMs ? { durationMs } : {}),
     }
     pushChatMessage(slug, message)
     server.to(slug).emit('chat', message)
