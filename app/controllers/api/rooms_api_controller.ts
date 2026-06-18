@@ -3,7 +3,7 @@ import { basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
-import { getViewerCount, dropRoom, io } from '#start/socket'
+import { getViewerCount, dropRoom, collectRoomVoiceFiles, addVoiceMessage, io } from '#start/socket'
 import {
   startUrlDownload,
   getJob,
@@ -36,9 +36,33 @@ import type { HttpContext } from '@adonisjs/core/http'
 const SUBTITLE_EXTENSIONS = ['srt', 'vtt']
 const MAX_SUBTITLE_SIZE = '2mb'
 
-/** Accepted extensions + size cap for chat voice-message uploads. */
-const VOICE_EXTENSIONS = ['m4a', 'aac', 'mp3', 'ogg', 'webm']
+/** Accepted extensions + size cap for chat voice-message uploads. `mp4` is
+ *  included because an AAC/`.m4a` clip is an MP4 container and can be detected
+ *  as `mp4` by the upload's content sniffing. */
+const VOICE_EXTENSIONS = ['m4a', 'mp4', 'aac', 'mp3', 'ogg', 'webm']
 const MAX_VOICE_SIZE = '10mb'
+
+/**
+ * Per-caller voice-upload throttle (sliding window) — the room API is
+ * account-less, so this caps how fast one device/IP can POST clips, blunting a
+ * disk-fill/spam flood. Keyed by `x-device-id` (falling back to IP).
+ */
+const VOICE_UPLOAD_WINDOW_MS = 10_000
+const VOICE_UPLOAD_MAX = 4
+const voiceUploadRate = new Map<string, number[]>()
+
+function withinVoiceUploadRate(key: string): boolean {
+  const now = Date.now()
+  let stamps = voiceUploadRate.get(key)
+  if (!stamps) {
+    stamps = []
+    voiceUploadRate.set(key, stamps)
+  }
+  while (stamps.length > 0 && now - stamps[0] > VOICE_UPLOAD_WINDOW_MS) stamps.shift()
+  if (stamps.length >= VOICE_UPLOAD_MAX) return false
+  stamps.push(now)
+  return true
+}
 
 /**
  * Re-encodes a subtitle file's bytes to UTF-8 so non-Latin text (notably
@@ -515,6 +539,15 @@ export default class RoomsApiController {
         /* already gone */
       }
     }
+    // Voice-message clips (public/voice/<file>) — collect from the chat log
+    // before dropRoom forgets it, then delete each file.
+    for (const file of collectRoomVoiceFiles(room.slug)) {
+      try {
+        await unlink(app.makePath('public/voice', basename(file)))
+      } catch {
+        /* already gone */
+      }
+    }
 
     dropRoom(room.slug)
     await room.delete()
@@ -599,6 +632,11 @@ export default class RoomsApiController {
       return response.status(404).json({ success: false, message: 'room_not_found' })
     }
 
+    const rateKey = request.header('x-device-id') ?? request.ip()
+    if (!withinVoiceUploadRate(rateKey)) {
+      return response.status(429).json({ success: false, message: 'too_many_voice_uploads' })
+    }
+
     const clip = request.file('voice', { size: MAX_VOICE_SIZE, extnames: VOICE_EXTENSIONS })
     if (!clip) return response.status(400).json({ success: false, message: 'no_voice_file' })
     if (!clip.isValid) {
@@ -618,6 +656,16 @@ export default class RoomsApiController {
     } catch {
       return response.status(500).json({ success: false, message: 'voice_save_failed' })
     }
+
+    // The upload itself delivers the message: build + broadcast it to the room
+    // (and persist it in history) so it reaches everyone without a socket send.
+    const durationRaw = Number(request.input('durationMs'))
+    addVoiceMessage(room.slug, {
+      name: String(request.input('name') ?? ''),
+      audioUrl: filename,
+      durationMs: Number.isFinite(durationRaw) && durationRaw > 0 ? Math.round(durationRaw) : null,
+      clientId: String(request.input('clientId') ?? '') || undefined,
+    })
 
     return response.json({ success: true, data: { filename } })
   }

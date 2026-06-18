@@ -66,3 +66,43 @@ export async function sweepOrphanTempFiles(): Promise<number> {
 
   return removed
 }
+
+/**
+ * Chat voice-message clips older than this are swept at boot. Chat history is
+ * in-memory, so after a restart every stored clip is already unreferenced; the
+ * age guard only avoids racing a file an overlapping previous process is still
+ * writing. Room deletion deletes a room's clips eagerly — this reclaims the rest.
+ */
+const VOICE_MAX_AGE_MS = 12 * 60 * 60 * 1000
+
+/**
+ * Deletes stale chat voice clips from `public/voice/`. Returns the number
+ * removed. Never throws — a locked/already-gone file is skipped.
+ */
+export async function sweepOldVoiceFiles(): Promise<number> {
+  const dir = app.makePath('public/voice')
+
+  let entries: string[]
+  try {
+    entries = await readdir(dir)
+  } catch {
+    return 0 // directory not created yet — nothing to sweep
+  }
+
+  const now = Date.now()
+  let removed = 0
+
+  for (const name of entries) {
+    const full = app.makePath('public/voice', name)
+    try {
+      const info = await stat(full)
+      if (!info.isFile() || now - info.mtimeMs < VOICE_MAX_AGE_MS) continue
+      await unlink(full)
+      removed++
+    } catch {
+      /* already gone, locked, or vanished mid-sweep — leave it for next boot */
+    }
+  }
+
+  return removed
+}

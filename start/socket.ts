@@ -261,6 +261,62 @@ export function dropRoom(slug: string): void {
 }
 
 /**
+ * Filenames of the voice-message clips this room accumulated (read from its
+ * in-memory chat log). The HTTP delete handler uses this to unlink the
+ * `public/voice/` files **before** [dropRoom] forgets the log.
+ */
+export function collectRoomVoiceFiles(slug: string): string[] {
+  const log = roomChats.get(slug)
+  if (!log) return []
+  const files: string[] = []
+  for (const m of log) {
+    if (typeof m.audioUrl === 'string' && m.audioUrl.length > 0) files.push(m.audioUrl)
+  }
+  return files
+}
+
+/**
+ * Turns an already-uploaded voice clip into a chat message and broadcasts it to
+ * the room. A voice note is therefore delivered **purely by its file upload** —
+ * the HTTP upload endpoint calls this, so it never depends on an (empty-text)
+ * socket `chat` event. Idempotent on `clientId`: a retried upload re-broadcasts
+ * the existing message instead of duplicating it. Returns the stored/created
+ * message (so the upload can echo it back, though the broadcast is what delivers).
+ */
+export function addVoiceMessage(
+  slug: string,
+  opts: { name: string; audioUrl: string; durationMs: number | null; clientId?: string }
+): ChatMessage | null {
+  if (!slug || !opts.audioUrl) return null
+
+  const clientId =
+    typeof opts.clientId === 'string' && opts.clientId.length > 0
+      ? opts.clientId.slice(0, 64)
+      : undefined
+  if (clientId) {
+    const existing = roomChats.get(slug)?.find((m) => m.clientId === clientId)
+    if (existing) {
+      io?.to(slug).emit('chat', existing)
+      return existing
+    }
+  }
+
+  const name = opts.name && opts.name.length > 0 ? opts.name.slice(0, 60) : 'Anonymous'
+  const message: ChatMessage = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    text: '',
+    ts: Date.now(),
+    clientId,
+    audioUrl: opts.audioUrl,
+    ...(opts.durationMs && opts.durationMs > 0 ? { durationMs: opts.durationMs } : {}),
+  }
+  pushChatMessage(slug, message)
+  io?.to(slug).emit('chat', message)
+  return message
+}
+
+/**
  * How long a room with no viewers keeps its place before it is fully reset.
  * Long enough to cover a brief network drop or a quick room re-entry, short
  * enough never to strand an abandoned room in memory.
@@ -616,7 +672,7 @@ function registerHandlers(server: Server, socket: Socket) {
     // produces this exact shape, which also bounds what we echo to the room) and
     // its length. A message must carry text OR audio.
     const audioUrl =
-      typeof payload?.audioUrl === 'string' && /^[\w.-]+\.(m4a|aac|mp3|ogg|webm)$/i.test(payload.audioUrl)
+      typeof payload?.audioUrl === 'string' && /^[\w.-]+\.(m4a|mp4|aac|mp3|ogg|webm)$/i.test(payload.audioUrl)
         ? payload.audioUrl
         : undefined
     const durationMs =

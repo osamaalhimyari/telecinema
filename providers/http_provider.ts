@@ -44,13 +44,17 @@ export default class HttpProvider {
      * at boot: no transfer is running yet, so every temp file is an orphan.
      */
     try {
-      const { sweepOrphanTempFiles } = await import('#services/storage_cleanup')
+      const { sweepOrphanTempFiles, sweepOldVoiceFiles } = await import('#services/storage_cleanup')
       const removed = await sweepOrphanTempFiles()
       if (removed > 0) {
         logger.info(`[storage] removed ${removed} orphaned download temp file(s)`)
       }
+      const voiceRemoved = await sweepOldVoiceFiles()
+      if (voiceRemoved > 0) {
+        logger.info(`[storage] removed ${voiceRemoved} stale voice clip(s)`)
+      }
     } catch (error) {
-      logger.warn({ err: error }, '[storage] orphan temp-file sweep failed')
+      logger.warn({ err: error }, '[storage] temp-file sweep failed')
     }
   }
 }
