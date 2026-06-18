@@ -133,6 +133,9 @@ router
     // Live-TV token refresh: a client pushes a freshly re-resolved stream URL
     // so an expired `tv` room keeps playing for everyone.
     router.post('/rooms/:slug/stream', [RoomsApiController, 'updateStream']).as('api.rooms.stream')
+    // Diagnostic: can this server reach the live-TV provider + stream hosts?
+    // (Decides whether a server-side HLS relay is viable.) Temporary.
+    router.get('/livetv/probe', [RoomsApiController, 'probeLiveTv']).as('api.livetv.probe')
     router.delete('/rooms/:slug', [RoomsApiController, 'destroy']).as('api.rooms.destroy')
     router
       .post('/rooms/:slug/subtitle', [RoomsApiController, 'uploadSubtitle'])

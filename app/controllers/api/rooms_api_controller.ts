@@ -174,6 +174,72 @@ export default class RoomsApiController {
   }
 
   /**
+   * GET /api/livetv/probe — diagnostic: can THIS server reach the live-TV
+   * provider and its stream hosts?
+   *
+   * The app's stream hosts are blocked by some ISPs (the device gets an HTML
+   * block page instead of an m3u8). A server relay only helps if the server's
+   * own network can fetch the stream — and these providers often block
+   * datacenter IPs too. This fetches the channel tree and the first channel's
+   * stream **server-side** and reports exactly what came back, so we can tell
+   * whether a relay is viable before building it. Temporary; remove once decided.
+   */
+  async probeLiveTv({ response }: HttpContext) {
+    const YACINE_UA = 'FlutterApp/1.0 (YacineTV)'
+    const BROWSER_UA =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+    const out: Record<string, unknown> = {}
+
+    const findChannel = (nodes: any[]): any => {
+      for (const n of nodes ?? []) {
+        if (Array.isArray(n.channels) && n.channels.length) return n.channels[0]
+        const c = findChannel(n.children)
+        if (c) return c
+      }
+      return null
+    }
+
+    try {
+      const t0 = Date.now()
+      const treeRes = await fetch('https://ostoraapptv.com/yacine_tree.json', {
+        headers: { 'User-Agent': YACINE_UA },
+        signal: AbortSignal.timeout(20000),
+      })
+      out.tree = { ok: treeRes.ok, status: treeRes.status, ms: Date.now() - t0 }
+
+      if (treeRes.ok) {
+        const tree: any = await treeRes.json()
+        const ch = findChannel(tree.categories ?? [])
+        ;(out.tree as any).channel = ch ? { name: ch.name, url: ch.url } : null
+
+        if (ch?.url) {
+          const headers: Record<string, string> = { 'User-Agent': BROWSER_UA, ...(ch.headers ?? {}) }
+          const t1 = Date.now()
+          const sRes = await fetch(ch.url, {
+            headers,
+            redirect: 'follow',
+            signal: AbortSignal.timeout(20000),
+          })
+          const body = await sRes.text()
+          out.stream = {
+            status: sRes.status,
+            ms: Date.now() - t1,
+            finalUrl: sRes.url,
+            contentType: sRes.headers.get('content-type'),
+            isM3u8: body.trimStart().startsWith('#EXTM3U'),
+            isBlockPage: /الملكية الفكرية|saip\.gov\.sa|blocked/i.test(body),
+            snippet: body.slice(0, 180),
+          }
+        }
+      }
+    } catch (error) {
+      out.error = error instanceof Error ? error.message : String(error)
+    }
+
+    return response.json({ success: true, data: out })
+  }
+
+  /**
    * POST /api/rooms/:slug/stream — refresh a live-TV room's stream in place.
    *
    * Live-TV stream URLs carry short-lived signed tokens (they expire within
