@@ -52,9 +52,14 @@ export default class Room extends BaseModel {
    * `external` (an iframe embed URL) is a **legacy** type: existing rows still
    * render, but it can no longer be created — the create form offers only
    * upload, download, torrent and youtube.
+   *
+   * `tv` — a live-TV channel (YacineTV). The packed stream string lives in
+   * {@link externalUrl} and is played natively on-device by the app; the server
+   * only stores and relays it (and lets a client refresh an expired token via
+   * `PATCH`-style update of {@link externalUrl}).
    */
   @column()
-  declare roomType: 'upload' | 'download' | 'external' | 'torrent' | 'youtube'
+  declare roomType: 'upload' | 'download' | 'external' | 'torrent' | 'youtube' | 'tv'
 
   /**
    * For legacy `external` rooms, the third-party player iframe URL; for

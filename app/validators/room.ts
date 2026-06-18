@@ -19,7 +19,10 @@ import vine from '@vinejs/vine'
 export const createRoomValidator = vine.create({
   name: vine.string().minLength(2).maxLength(80),
   password: vine.string().minLength(4).maxLength(64).nullable().optional(),
-  roomType: vine.enum(['upload', 'download', 'torrent', 'youtube']),
+  // `tv` — a live-TV channel (YacineTV). `videoUrl` carries an opaque packed
+  // string (stream URL + per-channel headers + channel path), played natively
+  // on-device; the server only stores/relays it, like a legacy `external` URL.
+  roomType: vine.enum(['upload', 'download', 'torrent', 'youtube', 'tv']),
   // Up to 8192: usually a short link, but a YouTube `download` resolved
   // on-device puts a long signed googlevideo (video-only) URL here.
   videoUrl: vine.string().trim().maxLength(8192).nullable().optional(),

@@ -174,6 +174,32 @@ export default class RoomsApiController {
   }
 
   /**
+   * POST /api/rooms/:slug/stream — refresh a live-TV room's stream in place.
+   *
+   * Live-TV stream URLs carry short-lived signed tokens (they expire within
+   * hours). When a client re-resolves a fresh URL on-device, it pushes the new
+   * packed string here so the room keeps working — including for viewers who
+   * join later. Only valid for `tv` rooms; `externalUrl` is capped at the
+   * column width.
+   */
+  async updateStream({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ success: false, message: 'room_not_found' })
+    }
+    if (room.roomType !== 'tv') {
+      return response.status(422).json({ success: false, message: 'not_a_tv_room' })
+    }
+    const videoUrl = String(request.input('videoUrl') ?? '').trim()
+    if (!videoUrl || videoUrl.length > 2048) {
+      return response.status(422).json({ success: false, message: 'invalid_stream' })
+    }
+    room.externalUrl = videoUrl
+    await room.save()
+    return response.json({ success: true, data: { room: this.serialize(room) } })
+  }
+
+  /**
    * POST /api/rooms — create a room. Mirrors the three web flows:
    *   - `download` → starts a background fetch; returns a `jobId` to poll.
    *   - `torrent`  → starts a background swarm add; returns a `jobId` to poll.
@@ -230,6 +256,30 @@ export default class RoomsApiController {
         await room.delete()
         return fail('That YouTube link could not be used.')
       }
+      return response.json({ success: true, data: { room: this.serialize(room) } })
+    }
+
+    // ---- live TV channel (no download, no resolve) ---------------------
+    // A YacineTV channel. `videoUrl` is an opaque packed string (stream URL +
+    // per-channel headers + channel path) the app plays natively and can later
+    // refresh in place via `updateStream` when its token expires. The server
+    // just stores it in `externalUrl` and relays sync/chat over the socket.
+    if (roomType === 'tv') {
+      if (!videoUrl) return fail('Missing channel stream.')
+      const slug = await this.uniqueSlug(name)
+      const room = await Room.create({
+        name,
+        slug,
+        videoFilename: '',
+        externalUrl: videoUrl,
+        thumbnailFilename: thumbnail ?? '',
+        roomType: 'tv',
+        isUserCreated: true,
+        passwordHash: password ? await hash.make(password) : null,
+        reactions: reactions ?? null,
+        category: category ?? null,
+        imdbId: imdbId ?? null,
+      })
       return response.json({ success: true, data: { room: this.serialize(room) } })
     }
 

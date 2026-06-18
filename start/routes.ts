@@ -130,6 +130,9 @@ router
       .as('api.rooms.cancelDownload')
     router.get('/rooms/:slug', [RoomsApiController, 'show']).as('api.rooms.show')
     router.post('/rooms/:slug/unlock', [RoomsApiController, 'unlock']).as('api.rooms.unlock')
+    // Live-TV token refresh: a client pushes a freshly re-resolved stream URL
+    // so an expired `tv` room keeps playing for everyone.
+    router.post('/rooms/:slug/stream', [RoomsApiController, 'updateStream']).as('api.rooms.stream')
     router.delete('/rooms/:slug', [RoomsApiController, 'destroy']).as('api.rooms.destroy')
     router
       .post('/rooms/:slug/subtitle', [RoomsApiController, 'uploadSubtitle'])
