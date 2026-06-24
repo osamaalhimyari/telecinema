@@ -15,6 +15,7 @@ import app from '@adonisjs/core/services/app'
 
 const RoomsController = () => import('#controllers/rooms_controller')
 const VideosController = () => import('#controllers/videos_controller')
+const LiveTvController = () => import('#controllers/live_tv_controller')
 const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
 const FavoritesApiController = () => import('#controllers/api/favorites_api_controller')
 const TopcinemaApiController = () => import('#controllers/api/topcinema_api_controller')
@@ -90,6 +91,10 @@ router.post('/room/:slug/delete', [RoomsController, 'destroy']).as('rooms.destro
 router.get('/video/:filename', [VideosController, 'stream']).as('videos.stream')
 router.get('/stream/:slug', [VideosController, 'streamTorrent']).as('videos.streamTorrent')
 router.get('/youtube/:slug', [VideosController, 'streamYoutube']).as('videos.streamYoutube')
+// Live-TV HLS relay: fetches the (ISP-blocked, header-gated) channel stream
+// server-side and rewrites it through this server. `/p` proxies sub-resources.
+router.get('/livetv/:slug', [LiveTvController, 'index']).as('livetv.index')
+router.get('/livetv/:slug/p', [LiveTvController, 'part']).as('livetv.part')
 
 /**
  * Subtitle endpoints — upload an .srt/.vtt for an external room, and serve

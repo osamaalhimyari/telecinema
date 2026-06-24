@@ -14,6 +14,7 @@ export const controllers = {
     RoomsApi: () => import('#controllers/api/rooms_api_controller'),
     TopcinemaApi: () => import('#controllers/api/topcinema_api_controller'),
   },
+  LiveTv: () => import('#controllers/live_tv_controller'),
   NewAccount: () => import('#controllers/new_account_controller'),
   Rooms: () => import('#controllers/rooms_controller'),
   Session: () => import('#controllers/session_controller'),
