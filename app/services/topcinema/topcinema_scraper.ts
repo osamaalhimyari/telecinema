@@ -26,7 +26,23 @@
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
-const BASE = 'https://web4.topcinema.fan'
+/**
+ * Interchangeable mirror domains, tried in order. Entry points (series/movie
+ * lookup, search) walk each host until one answers, so a domain that is
+ * down/blocked/rate-limited falls through to the next. Add more here if the
+ * site rotates to another domain.
+ */
+const HOSTS = ['https://web4.topcinema.fan', 'https://topcinemaa.com']
+
+/** `https://host/...` → `https://host/` (used as the vidtube referer). */
+function originOf(url: string): string {
+  try {
+    const u = new URL(url)
+    return `${u.protocol}//${u.host}/`
+  } catch {
+    return `${HOSTS[0]}/`
+  }
+}
 
 /** Arabic season ordinals as they appear in the url (الموسم الاول … العاشر). */
 const ORDINALS = [
@@ -90,17 +106,25 @@ export interface TopCinemaResult {
 export class TopCinemaError extends Error {}
 
 async function fetchText(url: string, referer?: string): Promise<{ status: number; body: string }> {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': UA, ...(referer ? { Referer: referer } : {}) },
-    redirect: 'follow',
-  })
-  return { status: res.status, body: await res.text() }
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': UA, ...(referer ? { Referer: referer } : {}) },
+      redirect: 'follow',
+    })
+    return { status: res.status, body: await res.text() }
+  } catch {
+    // Network-level failure (DNS / TLS / refused) — report as "no page here" so
+    // the caller can fall through to the next mirror instead of throwing.
+    return { status: 0, body: '' }
+  }
 }
 
-/** Every topcinema link on a page, as {raw (encoded), dec (decoded)} pairs. */
+/** Every topcinema link on a page (any mirror), as {raw, dec} pairs. */
 function links(html: string): { raw: string; dec: string }[] {
   const out: { raw: string; dec: string }[] = []
-  for (const m of html.matchAll(/href="(https:\/\/web4\.topcinema\.fan\/[^"]+)"/g)) {
+  for (const m of html.matchAll(
+    /href="(https?:\/\/(?:[\w-]+\.)*(?:topcinema\.fan|topcinemaa\.com)\/[^"]+)"/g
+  )) {
     let dec = m[1]
     try {
       dec = decodeURIComponent(m[1])
@@ -175,30 +199,46 @@ async function parseSeriesPage(url: string): Promise<TopCinemaSeries> {
   return { page: url, seasons, episodes }
 }
 
+/** Parses a season page, swallowing a site-shaped miss so callers can fall on. */
+async function tryParseSeriesPage(url: string): Promise<TopCinemaSeries | null> {
+  try {
+    return await parseSeriesPage(url)
+  } catch (e) {
+    if (e instanceof TopCinemaError) return null
+    throw e
+  }
+}
+
 /**
  * Opens a series by name. The name is the url slug the user can edit
- * (e.g. `silo`, `widows-bay`); the canonical season-one page is tried first,
- * then a search fallback. Returns seasons + first season's episodes.
+ * (e.g. `silo`, `widows-bay`). For each mirror the canonical season-one page is
+ * tried first, then a search fallback. Returns seasons + first season's episodes.
  */
 export async function seriesByName(name: string): Promise<TopCinemaSeries> {
   const slug = name.trim().toLowerCase().replace(/\s+/g, '-')
-  const entry = `${BASE}/series/${encodeURIComponent(`مسلسل-${slug}-الموسم-الاول-مترجم`)}/`
-  const { status } = await fetchText(entry)
-  if (status === 200) return parseSeriesPage(entry)
+  for (const base of HOSTS) {
+    const entry = `${base}/series/${encodeURIComponent(`مسلسل-${slug}-الموسم-الاول-مترجم`)}/`
+    const direct = await tryParseSeriesPage(entry)
+    if (direct) return direct
 
-  // Fallback: search (spaces, not hyphens) for any season page of this title.
-  const { body } = await fetchText(`${BASE}/?s=${encodeURIComponent(slug.replace(/-/g, ' '))}`)
-  const series = links(body).find(
-    (l) => l.dec.includes('/series/') && l.dec.includes('مسلسل-') && l.dec.includes('الموسم')
-  )
-  if (series) return parseSeriesPage(series.raw)
+    // Fallback: search (spaces, not hyphens) for any season page of this title.
+    const { body } = await fetchText(`${base}/?s=${encodeURIComponent(slug.replace(/-/g, ' '))}`)
+    const series = links(body).find(
+      (l) => l.dec.includes('/series/') && l.dec.includes('مسلسل-') && l.dec.includes('الموسم')
+    )
+    if (series) {
+      const parsed = await tryParseSeriesPage(series.raw)
+      if (parsed) return parsed
+    }
 
-  // Last resort: an episode result → its slug → reconstruct the season page.
-  const ep = links(body).find((l) => l.dec.includes('الحلقة') && l.dec.includes('مسلسل-'))
-  const epSlug = ep ? slugOf(ep.dec) : null
-  if (epSlug) {
-    const url = `${BASE}/series/${encodeURIComponent(`مسلسل-${epSlug}-الموسم-الاول-مترجم`)}/`
-    return parseSeriesPage(url)
+    // Last resort: an episode result → its slug → reconstruct the season page.
+    const ep = links(body).find((l) => l.dec.includes('الحلقة') && l.dec.includes('مسلسل-'))
+    const epSlug = ep ? slugOf(ep.dec) : null
+    if (epSlug) {
+      const url = `${base}/series/${encodeURIComponent(`مسلسل-${epSlug}-الموسم-الاول-مترجم`)}/`
+      const parsed = await tryParseSeriesPage(url)
+      if (parsed) return parsed
+    }
   }
   throw new TopCinemaError('topcinema_not_found')
 }
@@ -225,10 +265,10 @@ async function vidtubeLinkFor(pageUrl: string): Promise<string | null> {
 }
 
 /** Resolves every quality variant of a vidtube `/d/<id>.html` page in parallel. */
-async function resolveVidtube(vidtubeHtmlUrl: string): Promise<TopCinemaSource[]> {
+async function resolveVidtube(vidtubeHtmlUrl: string, referer: string): Promise<TopCinemaSource[]> {
   const id = vidtubeHtmlUrl.match(/\/d\/([^.]+)\.html/)?.[1]
   if (!id) return []
-  const { body } = await fetchText(vidtubeHtmlUrl, `${BASE}/`)
+  const { body } = await fetchText(vidtubeHtmlUrl, referer)
 
   const variants = new Map<QualityKey, string>()
   for (const m of body.matchAll(
@@ -266,26 +306,28 @@ async function resolveVidtube(vidtubeHtmlUrl: string): Promise<TopCinemaSource[]
 export async function resolveEpisode(episodeUrl: string): Promise<TopCinemaResult> {
   const vt = await vidtubeLinkFor(episodeUrl)
   if (!vt) throw new TopCinemaError('topcinema_not_found')
-  const sources = await resolveVidtube(vt)
+  const sources = await resolveVidtube(vt, originOf(episodeUrl))
   if (sources.length === 0) throw new TopCinemaError('topcinema_not_found')
   return { page: episodeUrl, sources }
 }
 
-/** Resolves a movie (by editable name slug) to its sources. */
+/** Resolves a movie (by editable name slug) to its sources, trying each mirror. */
 export async function resolveMovie(name: string): Promise<TopCinemaResult> {
   const slug = name.trim().toLowerCase().replace(/\s+/g, '-')
-  const candidates = [`${BASE}/${encodeURIComponent(`فيلم-${slug}-مترجم`)}/`]
+  for (const base of HOSTS) {
+    const candidates = [`${base}/${encodeURIComponent(`فيلم-${slug}-مترجم`)}/`]
 
-  // Search fallback for the movie page.
-  const { body } = await fetchText(`${BASE}/?s=${encodeURIComponent(slug.replace(/-/g, ' '))}`)
-  const film = links(body).find((l) => l.dec.includes('فيلم-') && !l.dec.includes('الحلقة'))
-  if (film && !candidates.includes(film.raw)) candidates.push(film.raw)
+    // Search fallback for the movie page on this mirror.
+    const { body } = await fetchText(`${base}/?s=${encodeURIComponent(slug.replace(/-/g, ' '))}`)
+    const film = links(body).find((l) => l.dec.includes('فيلم-') && !l.dec.includes('الحلقة'))
+    if (film && !candidates.includes(film.raw)) candidates.push(film.raw)
 
-  for (const page of candidates) {
-    const vt = await vidtubeLinkFor(page)
-    if (!vt) continue
-    const sources = await resolveVidtube(vt)
-    if (sources.length > 0) return { page, sources }
+    for (const page of candidates) {
+      const vt = await vidtubeLinkFor(page)
+      if (!vt) continue
+      const sources = await resolveVidtube(vt, originOf(page))
+      if (sources.length > 0) return { page, sources }
+    }
   }
   throw new TopCinemaError('topcinema_not_found')
 }

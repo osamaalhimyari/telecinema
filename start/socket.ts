@@ -55,6 +55,13 @@ interface ChatMessage {
    * if a flaky client re-sends the same message after a reconnect.
    */
   clientId?: string
+  /**
+   * Voice message: the uploaded clip's filename (served from `public/voice/`,
+   * played by clients via `AppConfig.voiceUrl`). Absent for a text message.
+   */
+  audioUrl?: string
+  /** Voice message length in ms — drives the bubble's duration display. */
+  durationMs?: number
 }
 
 const CHAT_HISTORY_LIMIT = 80
@@ -152,6 +159,43 @@ function pushChatMessage(slug: string, msg: ChatMessage): void {
 
 function getChatHistory(slug: string): ChatMessage[] {
   return roomChats.get(slug) ?? []
+}
+
+/**
+ * Broadcasts a recorded voice clip to a room as a chat message — appended to the
+ * room's history and emitted to every participant (the sender included, which
+ * reconciles its optimistic bubble by `clientId`). Called from the HTTP
+ * voice-upload endpoint: a voice message can't ride the `chat` socket handler
+ * because that requires non-empty text. Idempotent on `clientId`, so a re-tried
+ * upload (same nonce) re-broadcasts the stored copy instead of doubling it.
+ */
+export function broadcastVoiceMessage(
+  slug: string,
+  opts: { name: string; audioUrl: string; durationMs: number | null; clientId?: string }
+): void {
+  if (typeof slug !== 'string' || slug.length === 0) return
+
+  const clientId =
+    opts.clientId && opts.clientId.length > 0 ? opts.clientId.slice(0, 64) : undefined
+  if (clientId) {
+    const existing = roomChats.get(slug)?.find((m) => m.clientId === clientId)
+    if (existing) {
+      io?.to(slug).emit('chat', existing)
+      return
+    }
+  }
+
+  const message: ChatMessage = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    name: opts.name && opts.name.length > 0 ? opts.name.slice(0, 64) : 'Anonymous',
+    text: '',
+    ts: Date.now(),
+    clientId,
+    audioUrl: opts.audioUrl,
+    durationMs: opts.durationMs ?? undefined,
+  }
+  pushChatMessage(slug, message)
+  io?.to(slug).emit('chat', message)
 }
 
 function withinChatRate(socketId: string): boolean {
@@ -787,13 +831,16 @@ function registerHandlers(server: Server, socket: Socket) {
    * with the speaker's socket id so listeners can keep concurrent
    * speakers apart.
    */
-  socket.on('voice_start', (payload: { mimeType?: unknown }) => {
+  socket.on('voice_start', (payload: { mimeType?: unknown; clipId?: unknown }) => {
     const slug = socket.data.roomSlug
     if (typeof slug !== 'string' || slug.length === 0) return
 
     const mimeType = typeof payload?.mimeType === 'string' ? payload.mimeType : ''
     const name = typeof socket.data.displayName === 'string' ? socket.data.displayName : ''
-    socket.to(slug).emit('voice_start', { id: socket.id, mimeType, name })
+    // `clipId` tags this talk burst so listeners can present it as a discrete
+    // voice message and (later) ack it back to this sender as "opened".
+    const clipId = typeof payload?.clipId === 'string' ? payload.clipId : ''
+    socket.to(slug).emit('voice_start', { id: socket.id, mimeType, name, clipId })
   })
 
   socket.on('voice_chunk', (chunk: unknown) => {
@@ -804,11 +851,27 @@ function registerHandlers(server: Server, socket: Socket) {
     socket.to(slug).compress(false).emit('voice_chunk', { id: socket.id, chunk })
   })
 
-  socket.on('voice_end', () => {
+  socket.on('voice_end', (payload?: { clipId?: unknown }) => {
     const slug = socket.data.roomSlug
     if (typeof slug !== 'string' || slug.length === 0) return
 
-    socket.to(slug).emit('voice_end', { id: socket.id })
+    const clipId = typeof payload?.clipId === 'string' ? payload.clipId : ''
+    socket.to(slug).emit('voice_end', { id: socket.id, clipId })
+  })
+
+  /*
+   * A listener opened (played) a voice message. Relay a read receipt back to the
+   * room tagged with the original `clipId`, so the sender's bubble can flip to
+   * "read" once anyone in the room has listened.
+   */
+  socket.on('voice_read', (payload: { clipId?: unknown }) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+
+    const clipId = typeof payload?.clipId === 'string' ? payload.clipId : ''
+    if (clipId.length === 0) return
+    const name = typeof socket.data.displayName === 'string' ? socket.data.displayName : ''
+    socket.to(slug).emit('voice_read', { id: socket.id, clipId, name })
   })
 
   socket.on('reaction', (payload: { emoji?: unknown }) => {

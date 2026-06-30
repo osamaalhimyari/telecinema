@@ -18,6 +18,7 @@ const VideosController = () => import('#controllers/videos_controller')
 const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
 const FavoritesApiController = () => import('#controllers/api/favorites_api_controller')
 const TopcinemaApiController = () => import('#controllers/api/topcinema_api_controller')
+const IwaatchApiController = () => import('#controllers/api/iwaatch_api_controller')
 const AppVersionsApiController = () => import('#controllers/api/app_versions_api_controller')
 const AdminSessionController = () => import('#controllers/admin/admin_session_controller')
 const AdminVersionsController = () => import('#controllers/admin/app_versions_controller')
@@ -145,6 +146,10 @@ router
     // Isolated "second way" — topcinema direct-download source resolution.
     router.get('/topcinema/series', [TopcinemaApiController, 'series']).as('api.topcinema.series')
     router.get('/topcinema/resolve', [TopcinemaApiController, 'resolve']).as('api.topcinema.resolve')
+
+    // Isolated "third way" — iwaatch direct-link source resolution (server-side,
+    // because iwaatch is reachable from the server but geo-blocked for clients).
+    router.get('/iwaatch/resolve', [IwaatchApiController, 'resolve']).as('api.iwaatch.resolve')
 
     // In-app updates — the client asks if a newer build exists, then downloads
     // the APK (range-supported) from these two routes.

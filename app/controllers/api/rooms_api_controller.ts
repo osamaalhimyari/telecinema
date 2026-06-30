@@ -1,8 +1,9 @@
-import { unlink, readFile, writeFile } from 'node:fs/promises'
+import { unlink, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import Room from '#models/room'
 import { createRoomValidator } from '#validators/room'
-import { getViewerCount, dropRoom, io } from '#start/socket'
+import { getViewerCount, dropRoom, io, broadcastVoiceMessage } from '#start/socket'
 import {
   startUrlDownload,
   getJob,
@@ -32,6 +33,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 /** Accepted extensions for subtitle uploads. */
 const SUBTITLE_EXTENSIONS = ['srt', 'vtt']
 const MAX_SUBTITLE_SIZE = '2mb'
+
+/** Accepted extensions for chat voice clips (the app records AAC-LC `.m4a`; the
+ *  rest cover other recorder backends). */
+const VOICE_EXTENSIONS = ['m4a', 'aac', 'mp4', 'mp3', 'ogg', 'oga', 'opus', 'webm', 'wav', '3gp', 'caf']
+const MAX_VOICE_SIZE = '10mb'
 
 /**
  * Re-encodes a subtitle file's bytes to UTF-8 so non-Latin text (notably
