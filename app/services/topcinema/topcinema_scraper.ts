@@ -4,29 +4,87 @@
 |------------------------------------------------------------------------------
 |
 | A completely separate "second way" of sourcing a title, independent of the
-| torrent/Cinemeta path. It walks topcinema.fan exactly as a browser would and
-| returns direct, downloadable MP4 links resolved from the site's "vidtube.one"
-| file host.
+| torrent/Cinemeta path. It walks the TopCinema site exactly as a browser would
+| and returns direct, downloadable MP4 links resolved from its vidtube file host.
+|
+| The site base(s) and the vidtube file-host base(s) come from `.env`
+| (`TOPCINEMA_BASE`/`TOPCINEMA_VIDTUBE_BASE`) — no link is hard-coded here. The
+| site moves constantly, BOTH across subdomains (web4 → web5 → …) AND across whole
+| registrable domains (topcinema.fan ↔ topcinemaa.com ↔ …), so each is a
+| COMMA-SEPARATED list of mirrors: entry points are tried on each mirror until one
+| answers, and every link regex matches any subdomain of any configured domain.
 |
 | Series are driven by the SITE'S OWN html (not Cinemeta), because episode urls
 | are irregular (e.g. the finale is `…الحلقة-10-والاخيرة-مترجمة`) and can't be
 | safely constructed:
 |
 |   /series/مسلسل-<slug>-الموسم-الاول-مترجم/   → seasons list + that season's episodes
-|   <episode page>/download/                   → the "vidtube.one/d/<id>.html" host link
+|   <episode page>/download/                   → the vidtube `/d/<id>.html` host link
 |   vidtube /d/<id>.html                       → quality variants (_x _h _n _l)
 |   vidtube /d/<id>_<q>                        → the final tokenized CDN .mp4 url
 |
 | The CDN links are open (HTTP 206 range, no auth/referer) and valid ~24h, so
 | they drop straight into the existing `download` room flow. Nothing here
 | imports or mutates any existing service — it is intentionally standalone.
+|
+| NOTE: TopCinema blocks the server's datacentre IP. An outbound proxy is meant
+| for exactly this (`TOPCINEMA_PROXY_URL`); wiring it into `fetch` needs the
+| `undici` package (`setGlobalDispatcher(new ProxyAgent(url))`), which is not yet
+| a dependency — until it is, scraping only works from an allowed IP.
 */
+
+import env from '#start/env'
 
 /** A browser User-Agent — the site 403s the default Node/bot agent. */
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
-const BASE = 'https://web4.topcinema.fan'
+/** Bound every request so a hung host can't block the resolver indefinitely. */
+const REQUEST_TIMEOUT_MS = 25_000
+
+/** Splits a comma-separated env list of base URLs into trimmed, slash-stripped origins. */
+function parseBases(value: string): string[] {
+  return value
+    .split(',')
+    .map((b) => b.trim().replace(/\/+$/, ''))
+    .filter((b) => b.length > 0)
+}
+
+/** Registrable domain of a base URL's host (drops the leading subdomain label). */
+function domainOf(baseUrl: string): string {
+  const labels = new URL(baseUrl).host.split('.')
+  return labels.length > 2 ? labels.slice(1).join('.') : labels.join('.')
+}
+
+/** Origin of a url, or null if it can't be parsed. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
+/** A regex fragment matching ANY configured domain plus any subdomain of each. */
+function hostAlternation(bases: string[]): string {
+  const domains = [...new Set(bases.map(domainOf))]
+  const alt = domains.map((d) => d.replace(/\./g, '\\.')).join('|')
+  return `(?:[a-z0-9-]+\\.)*(?:${alt})`
+}
+
+/** TopCinema mirror bases (primary first) + the vidtube file-host bases. */
+const BASES = parseBases(env.get('TOPCINEMA_BASE'))
+const PRIMARY_BASE = BASES[0]
+const VIDTUBE_BASES = parseBases(env.get('TOPCINEMA_VIDTUBE_BASE'))
+
+/** All site links on a page (any subdomain of any configured TopCinema domain). */
+const SITE_LINK_RE = new RegExp(`href="(https?://${hostAlternation(BASES)}/[^"]+)"`, 'g')
+/** A vidtube `/d/<id>.html` link, optionally tagged as the recommended proServer. */
+const VIDTUBE_HTML_RE = new RegExp(`href="(https?://${hostAlternation(VIDTUBE_BASES)}/d/[^"]+\\.html)"`, 'i')
+const VIDTUBE_PRO_RE = new RegExp(
+  `href="(https?://${hostAlternation(VIDTUBE_BASES)}/d/[^"]+\\.html)"[^>]*class="[^"]*proServer`,
+  'i'
+)
 
 /** Arabic season ordinals as they appear in the url (الموسم الاول … العاشر). */
 const ORDINALS = [
@@ -93,6 +151,7 @@ async function fetchText(url: string, referer?: string): Promise<{ status: numbe
   const res = await fetch(url, {
     headers: { 'User-Agent': UA, ...(referer ? { Referer: referer } : {}) },
     redirect: 'follow',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   return { status: res.status, body: await res.text() }
 }
@@ -100,7 +159,7 @@ async function fetchText(url: string, referer?: string): Promise<{ status: numbe
 /** Every topcinema link on a page, as {raw (encoded), dec (decoded)} pairs. */
 function links(html: string): { raw: string; dec: string }[] {
   const out: { raw: string; dec: string }[] = []
-  for (const m of html.matchAll(/href="(https:\/\/web4\.topcinema\.fan\/[^"]+)"/g)) {
+  for (const m of html.matchAll(SITE_LINK_RE)) {
     let dec = m[1]
     try {
       dec = decodeURIComponent(m[1])
@@ -154,10 +213,27 @@ function parseEpisodes(html: string, slug: string): TopCinemaEpisode[] {
   return out
 }
 
+/** Fetches each url in order; returns the first that answers 200, else null. */
+async function fetchFirstOk(urls: string[]): Promise<{ url: string; body: string } | null> {
+  for (const url of urls) {
+    try {
+      const { status, body } = await fetchText(url)
+      if (status === 200) return { url, body }
+    } catch {
+      /* mirror down/blocked/timed-out — try the next one */
+    }
+  }
+  return null
+}
+
 /** Parses a season page into its seasons list + that season's episodes. */
-async function parseSeriesPage(url: string): Promise<TopCinemaSeries> {
-  const { status, body } = await fetchText(url)
-  if (status !== 200) throw new TopCinemaError('topcinema_not_found')
+async function parseSeriesPage(url: string, prefetched?: string): Promise<TopCinemaSeries> {
+  let body = prefetched
+  if (body === undefined) {
+    const res = await fetchText(url)
+    if (res.status !== 200) throw new TopCinemaError('topcinema_not_found')
+    body = res.body
+  }
   let dec = url
   try {
     dec = decodeURIComponent(url)
@@ -182,23 +258,34 @@ async function parseSeriesPage(url: string): Promise<TopCinemaSeries> {
  */
 export async function seriesByName(name: string): Promise<TopCinemaSeries> {
   const slug = name.trim().toLowerCase().replace(/\s+/g, '-')
-  const entry = `${BASE}/series/${encodeURIComponent(`مسلسل-${slug}-الموسم-الاول-مترجم`)}/`
-  const { status } = await fetchText(entry)
-  if (status === 200) return parseSeriesPage(entry)
+  const seasonOnePath = `series/${encodeURIComponent(`مسلسل-${slug}-الموسم-الاول-مترجم`)}/`
 
-  // Fallback: search (spaces, not hyphens) for any season page of this title.
-  const { body } = await fetchText(`${BASE}/?s=${encodeURIComponent(slug.replace(/-/g, ' '))}`)
-  const series = links(body).find(
-    (l) => l.dec.includes('/series/') && l.dec.includes('مسلسل-') && l.dec.includes('الموسم')
-  )
-  if (series) return parseSeriesPage(series.raw)
+  // 1) Canonical season-one page — tried on every mirror, first hit wins.
+  const canonical = await fetchFirstOk(BASES.map((b) => `${b}/${seasonOnePath}`))
+  if (canonical) return parseSeriesPage(canonical.url, canonical.body)
 
-  // Last resort: an episode result → its slug → reconstruct the season page.
-  const ep = links(body).find((l) => l.dec.includes('الحلقة') && l.dec.includes('مسلسل-'))
-  const epSlug = ep ? slugOf(ep.dec) : null
-  if (epSlug) {
-    const url = `${BASE}/series/${encodeURIComponent(`مسلسل-${epSlug}-الموسم-الاول-مترجم`)}/`
-    return parseSeriesPage(url)
+  // 2) Search each mirror (spaces, not hyphens) for any season page of the title.
+  const query = encodeURIComponent(slug.replace(/-/g, ' '))
+  for (const base of BASES) {
+    let body: string
+    try {
+      body = (await fetchText(`${base}/?s=${query}`)).body
+    } catch {
+      continue // this mirror is down/blocked — try the next
+    }
+
+    const series = links(body).find(
+      (l) => l.dec.includes('/series/') && l.dec.includes('مسلسل-') && l.dec.includes('الموسم')
+    )
+    if (series) return parseSeriesPage(series.raw)
+
+    // 3) Last resort: an episode result → its slug → reconstruct the season page
+    // on the SAME mirror it was found on (so we stay on a live domain).
+    const ep = links(body).find((l) => l.dec.includes('الحلقة') && l.dec.includes('مسلسل-'))
+    const epSlug = ep ? slugOf(ep.dec) : null
+    if (epSlug) {
+      return parseSeriesPage(`${base}/series/${encodeURIComponent(`مسلسل-${epSlug}-الموسم-الاول-مترجم`)}/`)
+    }
   }
   throw new TopCinemaError('topcinema_not_found')
 }
@@ -209,18 +296,16 @@ export async function seasonEpisodes(url: string): Promise<TopCinemaSeries> {
 }
 
 /**
- * Finds the `vidtube.one/d/<id>.html` link on an episode/movie download page,
+ * Finds the vidtube `/d/<id>.html` link on an episode/movie download page,
  * preferring the site's recommended "proServer".
  */
 async function vidtubeLinkFor(pageUrl: string): Promise<string | null> {
   const dlUrl = pageUrl.endsWith('/') ? `${pageUrl}download/` : `${pageUrl}/download/`
   const { status, body } = await fetchText(dlUrl)
   if (status !== 200) return null
-  const pro = body.match(
-    /href="(https:\/\/vidtube\.one\/d\/[^"]+\.html)"[^>]*class="[^"]*proServer/i
-  )
+  const pro = body.match(VIDTUBE_PRO_RE)
   if (pro) return pro[1]
-  const any = body.match(/href="(https:\/\/vidtube\.one\/d\/[^"]+\.html)"/i)
+  const any = body.match(VIDTUBE_HTML_RE)
   return any ? any[1] : null
 }
 
@@ -228,7 +313,10 @@ async function vidtubeLinkFor(pageUrl: string): Promise<string | null> {
 async function resolveVidtube(vidtubeHtmlUrl: string): Promise<TopCinemaSource[]> {
   const id = vidtubeHtmlUrl.match(/\/d\/([^.]+)\.html/)?.[1]
   if (!id) return []
-  const { body } = await fetchText(vidtubeHtmlUrl, `${BASE}/`)
+  // Follow whatever vidtube origin the page actually used (it rotates too),
+  // not a configured one; fall back to the first configured base if unparsable.
+  const vidtubeOrigin = originOf(vidtubeHtmlUrl) ?? VIDTUBE_BASES[0]
+  const { body } = await fetchText(vidtubeHtmlUrl, `${PRIMARY_BASE}/`)
 
   const variants = new Map<QualityKey, string>()
   for (const m of body.matchAll(
@@ -244,7 +332,7 @@ async function resolveVidtube(vidtubeHtmlUrl: string): Promise<TopCinemaSource[]
     QUALITY_ORDER.filter((q) => variants.has(q)).map(async (q) => {
       const label = variants.get(q)!
       try {
-        const { body: vb } = await fetchText(`https://vidtube.one/d/${id}_${q}`, vidtubeHtmlUrl)
+        const { body: vb } = await fetchText(`${vidtubeOrigin}/d/${id}_${q}`, vidtubeHtmlUrl)
         const url = vb.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/)?.[0]
         if (!url) return null
         return {
@@ -271,21 +359,38 @@ export async function resolveEpisode(episodeUrl: string): Promise<TopCinemaResul
   return { page: episodeUrl, sources }
 }
 
+/** Resolves a movie page url to its sources, or null if it yields none. */
+async function tryResolveMoviePage(page: string): Promise<TopCinemaResult | null> {
+  const vt = await vidtubeLinkFor(page)
+  if (!vt) return null
+  const sources = await resolveVidtube(vt)
+  return sources.length > 0 ? { page, sources } : null
+}
+
 /** Resolves a movie (by editable name slug) to its sources. */
 export async function resolveMovie(name: string): Promise<TopCinemaResult> {
   const slug = name.trim().toLowerCase().replace(/\s+/g, '-')
-  const candidates = [`${BASE}/${encodeURIComponent(`فيلم-${slug}-مترجم`)}/`]
 
-  // Search fallback for the movie page.
-  const { body } = await fetchText(`${BASE}/?s=${encodeURIComponent(slug.replace(/-/g, ' '))}`)
-  const film = links(body).find((l) => l.dec.includes('فيلم-') && !l.dec.includes('الحلقة'))
-  if (film && !candidates.includes(film.raw)) candidates.push(film.raw)
+  // 1) Canonical movie page on each mirror.
+  for (const base of BASES) {
+    const result = await tryResolveMoviePage(`${base}/${encodeURIComponent(`فيلم-${slug}-مترجم`)}/`)
+    if (result) return result
+  }
 
-  for (const page of candidates) {
-    const vt = await vidtubeLinkFor(page)
-    if (!vt) continue
-    const sources = await resolveVidtube(vt)
-    if (sources.length > 0) return { page, sources }
+  // 2) Search each mirror (spaces, not hyphens) for the movie page.
+  const query = encodeURIComponent(slug.replace(/-/g, ' '))
+  for (const base of BASES) {
+    let body: string
+    try {
+      body = (await fetchText(`${base}/?s=${query}`)).body
+    } catch {
+      continue
+    }
+    const film = links(body).find((l) => l.dec.includes('فيلم-') && !l.dec.includes('الحلقة'))
+    if (film) {
+      const result = await tryResolveMoviePage(film.raw)
+      if (result) return result
+    }
   }
   throw new TopCinemaError('topcinema_not_found')
 }

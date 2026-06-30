@@ -15,9 +15,10 @@
 */
 
 import { gunzipSync } from 'node:zlib'
+import env from '#start/env'
 
-/** Base URL of the keyless legacy REST API (same one the mobile app uses). */
-const OPEN_SUBTITLES_BASE = 'https://rest.opensubtitles.org'
+/** Base URL of the keyless legacy REST API (from `.env`; same one the app uses). */
+const OPEN_SUBTITLES_BASE = env.get('OPENSUBTITLES_BASE')
 
 /** The legacy API rejects requests without a User-Agent; any token works. */
 const OPEN_SUBTITLES_HEADERS = {

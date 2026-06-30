@@ -10,8 +10,11 @@ export const controllers = {
   },
   api: {
     AppVersionsApi: () => import('#controllers/api/app_versions_api_controller'),
+    CatalogApi: () => import('#controllers/api/catalog_api_controller'),
     FavoritesApi: () => import('#controllers/api/favorites_api_controller'),
     RoomsApi: () => import('#controllers/api/rooms_api_controller'),
+    StreamsApi: () => import('#controllers/api/streams_api_controller'),
+    SubtitlesApi: () => import('#controllers/api/subtitles_api_controller'),
     TopcinemaApi: () => import('#controllers/api/topcinema_api_controller'),
   },
   LiveTv: () => import('#controllers/live_tv_controller'),

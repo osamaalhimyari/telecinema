@@ -40,4 +40,27 @@ export default await Env.create(new URL('../', import.meta.url), {
   // In-app updates — expected Android applicationId; uploaded APKs must match it
   // so a wrong-app build can't be published. Optional: skips the check if unset.
   APP_ANDROID_PACKAGE: Env.schema.string.optional(),
+
+  // External catalogue / stream / subtitle sources. Every upstream URL the server
+  // calls lives here (never hard-coded in the code), so hosts/tokens can rotate
+  // without a redeploy. All required — the source modules read them verbatim.
+  CINEMETA_BASE: Env.schema.string(),
+  APIBAY_BASE: Env.schema.string(),
+  OPENSUBTITLES_BASE: Env.schema.string(),
+  /** Public BitTorrent trackers appended to built magnets (comma-separated). */
+  TORRENT_TRACKERS: Env.schema.string(),
+
+  // EgyBest / EasyPlex catalogue API — base, path-segment code and bearer token.
+  EGYBEST_BASE: Env.schema.string(),
+  EGYBEST_CODE: Env.schema.string(),
+  EGYBEST_BEARER: Env.schema.string(),
+
+  // TopCinema "second way" — comma-separated lists of site mirrors and vidtube
+  // file-host bases (the site rotates subdomains AND whole domains; mirrors are
+  // tried in order). The server's IP is blocked by TopCinema, so
+  // TOPCINEMA_PROXY_URL (optional) routes those requests through an outbound
+  // proxy (http://user:pass@host:port).
+  TOPCINEMA_BASE: Env.schema.string(),
+  TOPCINEMA_VIDTUBE_BASE: Env.schema.string(),
+  TOPCINEMA_PROXY_URL: Env.schema.string.optional(),
 })

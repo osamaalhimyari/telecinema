@@ -18,6 +18,9 @@ const VideosController = () => import('#controllers/videos_controller')
 const LiveTvController = () => import('#controllers/live_tv_controller')
 const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
 const FavoritesApiController = () => import('#controllers/api/favorites_api_controller')
+const CatalogApiController = () => import('#controllers/api/catalog_api_controller')
+const StreamsApiController = () => import('#controllers/api/streams_api_controller')
+const SubtitlesApiController = () => import('#controllers/api/subtitles_api_controller')
 const TopcinemaApiController = () => import('#controllers/api/topcinema_api_controller')
 const AppVersionsApiController = () => import('#controllers/api/app_versions_api_controller')
 const AdminSessionController = () => import('#controllers/admin/admin_session_controller')
@@ -153,6 +156,20 @@ router
     router
       .delete('/favorites/:mediaId', [FavoritesApiController, 'destroy'])
       .as('api.favorites.destroy')
+
+    // Catalogue — listed/searched/detailed LIVE from the sources (no DB mirror).
+    router.get('/catalog', [CatalogApiController, 'index']).as('api.catalog.index')
+    router
+      .get('/catalog/egybest/season/:seasonId', [CatalogApiController, 'egybestSeason'])
+      .as('api.catalog.egybest.season')
+    router.get('/catalog/:source/:mediaId', [CatalogApiController, 'show']).as('api.catalog.show')
+
+    // On-demand playable streams (torrents + direct links), resolved live.
+    router.get('/streams', [StreamsApiController, 'index']).as('api.streams.index')
+    router.post('/streams/resolve', [StreamsApiController, 'resolve']).as('api.streams.resolve')
+
+    // OpenSubtitles search proxy.
+    router.get('/subtitles/search', [SubtitlesApiController, 'search']).as('api.subtitles.search')
 
     // Isolated "second way" — topcinema direct-download source resolution.
     router.get('/topcinema/series', [TopcinemaApiController, 'series']).as('api.topcinema.series')
