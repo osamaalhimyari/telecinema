@@ -135,6 +135,8 @@ router
     router
       .post('/rooms/:slug/subtitle', [RoomsApiController, 'uploadSubtitle'])
       .as('api.rooms.subtitle')
+    // Recorded chat voice clip → stored under public/voice/ + broadcast to the room.
+    router.post('/rooms/:slug/voice', [RoomsApiController, 'voice']).as('api.rooms.voice')
 
     // Account-less global favorites — saved movies/series from the catalogue.
     router.get('/favorites', [FavoritesApiController, 'index']).as('api.favorites.index')

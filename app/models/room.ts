@@ -54,7 +54,7 @@ export default class Room extends BaseModel {
    * upload, download, torrent and youtube.
    */
   @column()
-  declare roomType: 'upload' | 'download' | 'external' | 'torrent' | 'youtube'
+  declare roomType: 'upload' | 'download' | 'external' | 'torrent' | 'youtube' | 'tv'
 
   /**
    * For legacy `external` rooms, the third-party player iframe URL; for

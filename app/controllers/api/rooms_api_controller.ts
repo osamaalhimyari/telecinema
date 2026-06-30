@@ -207,6 +207,31 @@ export default class RoomsApiController {
       return response.json({ success: true, data: { room: this.serialize(room) } })
     }
 
+    // ---- live TV (on-device playback) ----------------------------------
+    // The packed stream (origin URL + per-channel headers + tree path) rides in
+    // `videoUrl` and is stored verbatim as the room's externalUrl. Clients
+    // unpack it and play the origin on-device with its headers, re-resolving a
+    // fresh token via the tree path when it expires — so the server only stores
+    // it (no download, no relay). Created synchronously.
+    if (roomType === 'tv') {
+      if (!videoUrl) return fail('Please choose a channel.')
+      const slug = await this.uniqueSlug(name)
+      const room = await Room.create({
+        name,
+        slug,
+        videoFilename: '',
+        externalUrl: videoUrl,
+        thumbnailFilename: thumbnail ?? '',
+        roomType: 'tv',
+        isUserCreated: true,
+        passwordHash: password ? await hash.make(password) : null,
+        reactions: reactions ?? null,
+        category: category ?? null,
+        imdbId: imdbId ?? null,
+      })
+      return response.json({ success: true, data: { room: this.serialize(room) } })
+    }
+
     // ---- download from a link OR a magnet ------------------------------
     // The server fetches the video to disk either way; a magnet is downloaded
     // fully (then served as a normal file room) instead of streamed on demand.
@@ -531,6 +556,51 @@ export default class RoomsApiController {
       weight: room.subtitleWeight ?? 500,
       size: room.subtitleSize ?? 28,
     })
+
+    return response.json({ success: true, data: { filename } })
+  }
+
+  /**
+   * POST /api/rooms/:slug/voice — upload a recorded chat voice clip.
+   *
+   * The clip rides the multipart body (field `voice`); its metadata (sender
+   * `name`, `durationMs`, client `clientId`) comes on the query string so it is
+   * parsed independently of the multipart stream. The clip is stored under
+   * `public/voice/` (served statically at `/voice/:filename`) and the same call
+   * broadcasts the voice chat message to the room over the socket — so the
+   * upload is the whole delivery (the client does no separate socket send).
+   * Returns the stored filename.
+   */
+  async voice({ params, request, response }: HttpContext) {
+    const room = await Room.findBy('slug', params.slug)
+    if (!room) {
+      return response.status(404).json({ success: false, message: 'room_not_found' })
+    }
+
+    const clip = request.file('voice', { size: MAX_VOICE_SIZE, extnames: VOICE_EXTENSIONS })
+    if (!clip) return response.status(400).json({ success: false, message: 'no_voice_file' })
+    if (!clip.isValid) {
+      return response
+        .status(400)
+        .json({ success: false, message: clip.errors[0]?.message ?? 'voice_rejected' })
+    }
+
+    const ext = (clip.extname || 'm4a').toLowerCase()
+    const filename = `${room.slug}-${randomUUID()}.${ext}`
+    const dir = app.makePath('public/voice')
+    try {
+      await mkdir(dir, { recursive: true })
+      await clip.move(dir, { name: filename, overwrite: true })
+    } catch {
+      return response.status(500).json({ success: false, message: 'voice_save_failed' })
+    }
+
+    const durationRaw = Number(request.input('durationMs'))
+    const durationMs = Number.isFinite(durationRaw) && durationRaw > 0 ? Math.round(durationRaw) : null
+    const clientId = String(request.input('clientId') ?? '').trim() || undefined
+    const name = String(request.input('name') ?? '').trim()
+
+    broadcastVoiceMessage(room.slug, { name, audioUrl: filename, durationMs, clientId })
 
     return response.json({ success: true, data: { filename } })
   }

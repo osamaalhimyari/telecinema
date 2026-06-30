@@ -19,7 +19,7 @@ import vine from '@vinejs/vine'
 export const createRoomValidator = vine.create({
   name: vine.string().minLength(2).maxLength(80),
   password: vine.string().minLength(4).maxLength(64).nullable().optional(),
-  roomType: vine.enum(['upload', 'download', 'torrent', 'youtube']),
+  roomType: vine.enum(['upload', 'download', 'torrent', 'youtube', 'tv']),
   videoUrl: vine.string().trim().maxLength(2048).nullable().optional(),
   magnet: vine.string().trim().maxLength(8192).nullable().optional(),
   reactions: vine.string().nullable().optional(),
