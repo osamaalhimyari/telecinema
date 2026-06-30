@@ -20,6 +20,7 @@ export const controllers = {
   },
   LiveTv: () => import('#controllers/live_tv_controller'),
   NewAccount: () => import('#controllers/new_account_controller'),
+  Reachability: () => import('#controllers/reachability_controller'),
   Rooms: () => import('#controllers/rooms_controller'),
   Session: () => import('#controllers/session_controller'),
   Videos: () => import('#controllers/videos_controller'),

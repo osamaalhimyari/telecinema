@@ -14,6 +14,7 @@ import router from '@adonisjs/core/services/router'
 import app from '@adonisjs/core/services/app'
 
 const RoomsController = () => import('#controllers/rooms_controller')
+const ReachabilityController = () => import('#controllers/reachability_controller')
 const VideosController = () => import('#controllers/videos_controller')
 const LiveTvController = () => import('#controllers/live_tv_controller')
 const RoomsApiController = () => import('#controllers/api/rooms_api_controller')
@@ -57,6 +58,12 @@ router.get('/.well-known/apple-app-site-association', async ({ response }) => {
   const raw = await readFile(app.makePath('public/.well-known/apple-app-site-association'), 'utf-8')
   return response.json(JSON.parse(raw))
 })
+
+/**
+ * Connectivity probe — does this server's network reach https://iwaatch.com/?
+ * Returns that page verbatim on success, or 502 + the error on failure.
+ */
+router.get('/reach/iwaatch', [ReachabilityController, 'iwaatch']).as('reach.iwaatch')
 
 /**
  * Home — grid of every available room.
