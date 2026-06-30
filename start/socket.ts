@@ -61,6 +61,13 @@ interface ChatMessage {
    */
   audioUrl?: string
   durationMs?: number
+  /**
+   * Voice message "heard" receipt: flipped true once any *other* viewer has
+   * listened to the clip to the end. Once set it never clears, and it rides
+   * along in `chat_history` so a reconnecting sender still sees it. Meaningless
+   * for text messages.
+   */
+  heard?: boolean
 }
 
 const CHAT_HISTORY_LIMIT = 80
@@ -887,6 +894,30 @@ function registerHandlers(server: Server, socket: Socket) {
     if (typeof slug !== 'string' || slug.length === 0) return
 
     socket.to(slug).emit('voice_end', { id: socket.id })
+  })
+
+  /**
+   * "Heard" receipt for a chat *voice message*: a listener reports it has played
+   * a clip to the end. We flip the stored message's `heard` flag (idempotent —
+   * the first report wins, so a re-play or a second listener costs nothing) and
+   * broadcast `voice_heard` to the room so the sender's bubble shows the read
+   * state. The flag also persists in the room's chat log, so it survives in the
+   * `chat_history` a reconnecting sender receives. Clients only emit this for
+   * messages they did not send, so a sender never marks their own clip heard.
+   */
+  socket.on('voice_heard', (payload: { messageId?: unknown }) => {
+    const slug = socket.data.roomSlug
+    if (typeof slug !== 'string' || slug.length === 0) return
+
+    const messageId = typeof payload?.messageId === 'string' ? payload.messageId : ''
+    if (!messageId) return
+
+    const message = roomChats.get(slug)?.find((m) => m.id === messageId)
+    // Only voice messages can be "heard"; ignore unknown ids and text messages.
+    if (!message || !message.audioUrl || message.heard) return
+
+    message.heard = true
+    server.to(slug).emit('voice_heard', { id: messageId })
   })
 
   socket.on('reaction', (payload: { emoji?: unknown }) => {
