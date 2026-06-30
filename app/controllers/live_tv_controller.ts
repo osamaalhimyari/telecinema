@@ -2,7 +2,8 @@ import type { HttpContext } from '@adonisjs/core/http'
 import Room from '#models/room'
 
 /**
- * Server-side HLS relay for live-TV (`tv`) rooms.
+ * Server-side HLS relay for live-TV (`tv`) rooms — and ad-hoc single-user
+ * previews.
  *
  * The channel stream hosts are blocked by some ISPs (the device gets an HTML
  * block page instead of an m3u8) and require per-channel `User-Agent`/`Referer`
@@ -11,12 +12,16 @@ import Room from '#models/room'
  * back through here, and serves it to the app — so the device only ever talks to
  * this server, which the ISP allows.
  *
- *   GET /livetv/:slug         → the room's playlist (master or media), rewritten
- *   GET /livetv/:slug/p?u=…   → any sub-resource (variant playlist / segment / key)
+ *   GET /livetv/:slug          → a room's playlist (master or media), rewritten
+ *   GET /livetv/:slug/p?u=…    → a room's sub-resource (variant / segment / key)
+ *   GET /livetv/preview?u=…&h=…    → preview a channel before making a room
+ *   GET /livetv/preview/p?u=…&h=…  → a preview's sub-resource
  *
  * The room's packed `externalUrl` (stream URL + headers + channel path) is read
  * fresh on every request, so when a client re-resolves an expired token and
  * pushes it via `POST /api/rooms/:slug/stream`, the relay immediately uses it.
+ * Previews are stateless: the stream URL + headers ride in the query string
+ * (`u` = base64url(url), `h` = base64url(json headers)) so no room is needed.
  */
 export default class LiveTvController {
   /** A desktop UA fallback when a channel carries none. */
@@ -50,11 +55,43 @@ export default class LiveTvController {
     return this.unpack(room.externalUrl)
   }
 
+  /** Decodes a base64url-encoded query value to its UTF-8 string, or null. */
+  private decode(raw: unknown): string | null {
+    const s = String(raw ?? '')
+    if (!s) return null
+    try {
+      return Buffer.from(s, 'base64url').toString('utf8')
+    } catch {
+      return null
+    }
+  }
+
+  /** Decodes the `h` headers param (`base64url(json{...})`) into a header map. */
+  private decodeHeaders(raw: unknown): Record<string, string> {
+    const json = this.decode(raw)
+    if (!json) return {}
+    try {
+      const meta = JSON.parse(json)
+      const headers: Record<string, string> = {}
+      if (meta && typeof meta === 'object') {
+        for (const [k, v] of Object.entries(meta)) headers[k] = String(v)
+      }
+      return headers
+    } catch {
+      return {}
+    }
+  }
+
+  // ── Room relay ─────────────────────────────────────────────────────────────
+
   /** GET /livetv/:slug — entry playlist for the room. */
   async index({ params, response }: HttpContext) {
     const live = await this.live(params.slug)
     if (!live) return response.status(404).json({ success: false, message: 'not_a_tv_room' })
-    return this.proxy(response, params.slug, live.url, live.headers, null)
+    const slug = params.slug
+    return this.proxy(response, live.url, live.headers, null, (abs) =>
+      `/livetv/${slug}/p?u=${Buffer.from(abs, 'utf8').toString('base64url')}`
+    )
   }
 
   /** GET /livetv/:slug/p?u=<base64url> — a proxied sub-resource. */
@@ -62,29 +99,57 @@ export default class LiveTvController {
     const live = await this.live(params.slug)
     if (!live) return response.status(404).json({ success: false, message: 'not_a_tv_room' })
 
-    const u = String(request.input('u') ?? '')
-    let target: string
-    try {
-      target = Buffer.from(u, 'base64url').toString('utf8')
-    } catch {
+    const target = this.decode(request.input('u'))
+    if (!target || !/^https?:\/\//i.test(target)) {
       return response.status(400).json({ success: false, message: 'bad_url' })
     }
-    if (!/^https?:\/\//i.test(target)) {
-      return response.status(400).json({ success: false, message: 'bad_url' })
-    }
-    return this.proxy(response, params.slug, target, live.headers, request.header('range') ?? null)
+    const slug = params.slug
+    return this.proxy(response, target, live.headers, request.header('range') ?? null, (abs) =>
+      `/livetv/${slug}/p?u=${Buffer.from(abs, 'utf8').toString('base64url')}`
+    )
   }
+
+  // ── Stateless preview relay ─────────────────────────────────────────────────
+
+  /** GET /livetv/preview?u=<base64url(url)>&h=<base64url(json headers)>. */
+  async preview({ request, response }: HttpContext) {
+    const url = this.decode(request.input('u'))
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return response.status(400).json({ success: false, message: 'bad_url' })
+    }
+    const headers = this.decodeHeaders(request.input('h'))
+    const hParam = encodeURIComponent(String(request.input('h') ?? ''))
+    return this.proxy(response, url, headers, request.header('range') ?? null, (abs) =>
+      `/livetv/preview/p?u=${Buffer.from(abs, 'utf8').toString('base64url')}&h=${hParam}`
+    )
+  }
+
+  /** GET /livetv/preview/p?u=<base64url(absUrl)>&h=<base64url(json headers)>. */
+  async previewPart({ request, response }: HttpContext) {
+    const target = this.decode(request.input('u'))
+    if (!target || !/^https?:\/\//i.test(target)) {
+      return response.status(400).json({ success: false, message: 'bad_url' })
+    }
+    const headers = this.decodeHeaders(request.input('h'))
+    const hParam = encodeURIComponent(String(request.input('h') ?? ''))
+    return this.proxy(response, target, headers, request.header('range') ?? null, (abs) =>
+      `/livetv/preview/p?u=${Buffer.from(abs, 'utf8').toString('base64url')}&h=${hParam}`
+    )
+  }
+
+  // ── Core proxy ──────────────────────────────────────────────────────────────
 
   /**
    * Fetches [target] with the channel headers. If it's a playlist, rewrites all
-   * sub-URLs back through this relay; otherwise streams the bytes (segment/key).
+   * sub-URLs back through this relay (via [encSub]); otherwise streams the bytes
+   * (segment/key).
    */
   private async proxy(
     response: HttpContext['response'],
-    slug: string,
     target: string,
     headers: Record<string, string>,
-    range: string | null
+    range: string | null,
+    encSub: (absoluteUrl: string) => string
   ) {
     const reqHeaders: Record<string, string> = { 'User-Agent': LiveTvController.FALLBACK_UA, ...headers }
     if (range) reqHeaders['Range'] = range
@@ -112,7 +177,7 @@ export default class LiveTvController {
       }
       response.header('content-type', 'application/vnd.apple.mpegurl')
       response.header('cache-control', 'no-cache, no-store')
-      return response.send(this.rewrite(text, target, slug))
+      return response.send(this.rewrite(text, target, encSub))
     }
 
     // Binary (segment / encryption key / init segment): relay the bytes through.
@@ -129,11 +194,10 @@ export default class LiveTvController {
 
   /**
    * Rewrites every URL in an m3u8 — segment lines, sub-playlist lines, and the
-   * `URI="…"` of `#EXT-X-KEY` / `#EXT-X-MAP` / `#EXT-X-MEDIA` — to route back
-   * through `/livetv/:slug/p`. Relative URLs are resolved against [baseUrl].
+   * `URI="…"` of `#EXT-X-KEY` / `#EXT-X-MAP` / `#EXT-X-MEDIA` — back through this
+   * relay via [encSub]. Relative URLs are resolved against [baseUrl] first.
    */
-  private rewrite(playlist: string, baseUrl: string, slug: string): string {
-    const enc = (abs: string) => `/livetv/${slug}/p?u=${Buffer.from(abs, 'utf8').toString('base64url')}`
+  private rewrite(playlist: string, baseUrl: string, encSub: (absoluteUrl: string) => string): string {
     const resolve = (ref: string) => {
       try {
         return new URL(ref, baseUrl).toString()
@@ -148,10 +212,10 @@ export default class LiveTvController {
         if (t.length === 0) return line
         if (t.startsWith('#')) {
           // Rewrite any embedded URI="…" (keys, init segments, alt renditions).
-          return line.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${enc(resolve(uri))}"`)
+          return line.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${encSub(resolve(uri))}"`)
         }
         // A bare URL line: a segment or a sub-playlist.
-        return enc(resolve(t))
+        return encSub(resolve(t))
       })
       .join('\n')
   }

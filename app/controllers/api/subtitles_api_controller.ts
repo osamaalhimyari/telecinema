@@ -1,4 +1,4 @@
-import { searchOpenSubtitles } from '#services/opensubtitles'
+import { searchOpenSubtitles, downloadOpenSubtitle } from '#services/opensubtitles'
 import type { HttpContext } from '@adonisjs/core/http'
 
 /**
@@ -7,8 +7,12 @@ import type { HttpContext } from '@adonisjs/core/http'
  * app's `SubtitleResult` (id, fileName, langId, langName, format, downloadLink,
  * releaseName, downloadsCount, rating), so the client mapper is unchanged.
  *
- * Params: `imdbId`, `query`, `season`, `episode`, `lang` (ISO 639-2, e.g. `ara`).
- * Downloading/attaching a chosen subtitle keeps using the room-scoped routes.
+ * GET /api/subtitles/download — fetches a chosen result's (gzipped, http) file
+ * host link server-side, gunzips + UTF-8-normalizes it, and returns the plain
+ * subtitle text, so the device never fetches the external file host directly.
+ *
+ * Params (search): `imdbId`, `query`, `season`, `episode`, `lang` (ISO 639-2).
+ * Attaching a chosen subtitle to a room keeps using the room-scoped routes.
  */
 export default class SubtitlesApiController {
   async search({ request, response }: HttpContext) {
@@ -24,6 +28,26 @@ export default class SubtitlesApiController {
 
     const results = await searchOpenSubtitles({ imdbId, query, season, episode, lang })
     return response.json({ success: true, data: { results } })
+  }
+
+  /**
+   * GET /api/subtitles/download?url=<SubDownloadLink> — only OpenSubtitles hosts
+   * are accepted (SSRF-guarded inside `downloadOpenSubtitle`). Returns the ready
+   * UTF-8 subtitle text as `{ data: { content } }`.
+   */
+  async download({ request, response }: HttpContext) {
+    const url = str(request.input('url'))
+    if (!url) {
+      return response.status(422).json({ success: false, message: 'subtitle_url_required' })
+    }
+    try {
+      const bytes = await downloadOpenSubtitle(url)
+      return response.json({ success: true, data: { content: bytes.toString('utf8') } })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'subtitle_download_failed'
+      const rejected = message === 'opensubtitles_download_rejected'
+      return response.status(rejected ? 400 : 502).json({ success: false, message })
+    }
   }
 }
 

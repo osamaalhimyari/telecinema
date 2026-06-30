@@ -301,8 +301,14 @@ export async function seasonEpisodes(url: string): Promise<TopCinemaSeries> {
  */
 async function vidtubeLinkFor(pageUrl: string): Promise<string | null> {
   const dlUrl = pageUrl.endsWith('/') ? `${pageUrl}download/` : `${pageUrl}/download/`
-  const { status, body } = await fetchText(dlUrl)
-  if (status !== 200) return null
+  let body: string
+  try {
+    const res = await fetchText(dlUrl)
+    if (res.status !== 200) return null
+    body = res.body
+  } catch {
+    return null // timeout/network — let the caller try the next candidate
+  }
   const pro = body.match(VIDTUBE_PRO_RE)
   if (pro) return pro[1]
   const any = body.match(VIDTUBE_HTML_RE)
@@ -316,7 +322,12 @@ async function resolveVidtube(vidtubeHtmlUrl: string): Promise<TopCinemaSource[]
   // Follow whatever vidtube origin the page actually used (it rotates too),
   // not a configured one; fall back to the first configured base if unparsable.
   const vidtubeOrigin = originOf(vidtubeHtmlUrl) ?? VIDTUBE_BASES[0]
-  const { body } = await fetchText(vidtubeHtmlUrl, `${PRIMARY_BASE}/`)
+  let body: string
+  try {
+    body = (await fetchText(vidtubeHtmlUrl, `${PRIMARY_BASE}/`)).body
+  } catch {
+    return [] // timeout/network — best-effort, caller treats as "no sources"
+  }
 
   const variants = new Map<QualityKey, string>()
   for (const m of body.matchAll(

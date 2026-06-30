@@ -22,6 +22,7 @@ const CatalogApiController = () => import('#controllers/api/catalog_api_controll
 const StreamsApiController = () => import('#controllers/api/streams_api_controller')
 const SubtitlesApiController = () => import('#controllers/api/subtitles_api_controller')
 const TopcinemaApiController = () => import('#controllers/api/topcinema_api_controller')
+const TvApiController = () => import('#controllers/api/tv_api_controller')
 const AppVersionsApiController = () => import('#controllers/api/app_versions_api_controller')
 const AdminSessionController = () => import('#controllers/admin/admin_session_controller')
 const AdminVersionsController = () => import('#controllers/admin/app_versions_controller')
@@ -96,6 +97,12 @@ router.get('/stream/:slug', [VideosController, 'streamTorrent']).as('videos.stre
 router.get('/youtube/:slug', [VideosController, 'streamYoutube']).as('videos.streamYoutube')
 // Live-TV HLS relay: fetches the (ISP-blocked, header-gated) channel stream
 // server-side and rewrites it through this server. `/p` proxies sub-resources.
+// The stateless `/preview` variant relays an ad-hoc channel (url + headers in
+// the query) so the app can preview a channel before creating a room. The
+// literal `/preview` routes are declared BEFORE `/:slug` so they aren't
+// swallowed by the slug param.
+router.get('/livetv/preview', [LiveTvController, 'preview']).as('livetv.preview')
+router.get('/livetv/preview/p', [LiveTvController, 'previewPart']).as('livetv.preview.part')
 router.get('/livetv/:slug', [LiveTvController, 'index']).as('livetv.index')
 router.get('/livetv/:slug/p', [LiveTvController, 'part']).as('livetv.part')
 
@@ -168,8 +175,13 @@ router
     router.get('/streams', [StreamsApiController, 'index']).as('api.streams.index')
     router.post('/streams/resolve', [StreamsApiController, 'resolve']).as('api.streams.resolve')
 
-    // OpenSubtitles search proxy.
+    // OpenSubtitles search + download proxy (the device never hits the file host).
     router.get('/subtitles/search', [SubtitlesApiController, 'search']).as('api.subtitles.search')
+    router.get('/subtitles/download', [SubtitlesApiController, 'download']).as('api.subtitles.download')
+
+    // Live-TV channel catalogue — fetched + cached server-side, so the device
+    // never calls the YacineTV provider directly.
+    router.get('/tv/tree', [TvApiController, 'tree']).as('api.tv.tree')
 
     // Isolated "second way" — topcinema direct-download source resolution.
     router.get('/topcinema/series', [TopcinemaApiController, 'series']).as('api.topcinema.series')

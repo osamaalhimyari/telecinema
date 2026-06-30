@@ -20,12 +20,26 @@ const APIBAY = `${env.get('APIBAY_BASE')}/q.php`
 /** apibay's empty-result sentinel. */
 const ZERO_HASH = '0000000000000000000000000000000000000000'
 
-/** Public trackers appended to every built magnet (comma-separated in `.env`). */
-const TRACKERS = env
-  .get('TORRENT_TRACKERS')
-  .split(',')
-  .map((t) => t.trim())
-  .filter((t) => t.length > 0)
+/**
+ * Public UDP trackers appended to every built magnet. Kept inline (not in
+ * `.env`): a long, swappable infrastructure list, not a source endpoint.
+ *
+ * The first five are our long-standing, confirmed-alive trackers; the last three
+ * are the top-ranked UDP entries from github.com/ngosang/trackerslist
+ * (`trackers_best.txt`, verified 2026-06-30 — that list refreshes daily, so
+ * re-paste from it periodically). Two formerly-listed trackers were dropped as
+ * permanently dead: `tracker.openbittorrent.com` and `tracker.coppersurfer.tk`.
+ */
+const TRACKERS = [
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://explodie.org:6969/announce',
+  'udp://zer0day.ch:1337/announce',
+  'udp://open.demonii.com:1337/announce',
+  'udp://tracker.publictracker.xyz:6969/announce',
+]
 
 /** Filename hints that mark a result as a watchable video. */
 const VIDEO_HINTS = [

@@ -16,6 +16,7 @@ export const controllers = {
     StreamsApi: () => import('#controllers/api/streams_api_controller'),
     SubtitlesApi: () => import('#controllers/api/subtitles_api_controller'),
     TopcinemaApi: () => import('#controllers/api/topcinema_api_controller'),
+    TvApi: () => import('#controllers/api/tv_api_controller'),
   },
   LiveTv: () => import('#controllers/live_tv_controller'),
   NewAccount: () => import('#controllers/new_account_controller'),

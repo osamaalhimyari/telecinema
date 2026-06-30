@@ -47,8 +47,6 @@ export default await Env.create(new URL('../', import.meta.url), {
   CINEMETA_BASE: Env.schema.string(),
   APIBAY_BASE: Env.schema.string(),
   OPENSUBTITLES_BASE: Env.schema.string(),
-  /** Public BitTorrent trackers appended to built magnets (comma-separated). */
-  TORRENT_TRACKERS: Env.schema.string(),
 
   // EgyBest / EasyPlex catalogue API — base, path-segment code and bearer token.
   EGYBEST_BASE: Env.schema.string(),
